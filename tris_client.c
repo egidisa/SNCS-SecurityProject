@@ -12,6 +12,8 @@
 #include <netinet/in.h>
 #include <errno.h>
 
+#include "crypto_lib.h"
+
 //===== COSTANTS ==================
 
 #define MAX_DIM_CMD     12	//max dimension commands
@@ -37,6 +39,7 @@ char 		    my_username[MAX_LENGTH];
 unsigned long   my_IP;
 unsigned short	my_UDP_port;	//da 0 a 65535
 char		    my_mark;
+char 			tmp_pswd[N_CMD];
 
 //other client data
 char		    client_username[MAX_LENGTH];
