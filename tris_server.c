@@ -12,7 +12,7 @@
 #include<netinet/in.h>
 #include<errno.h>
 
-//===== COSTANTI ==================
+//===== COSTANTS ==================
 #define MAX_CONNECTION 	10
 #define MAX_LENGTH 		25	//max lunghezza username
 //=================================

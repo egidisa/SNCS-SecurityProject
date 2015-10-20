@@ -1,45 +1,48 @@
 //client
-#include<stdlib.h>
-#include<string.h>
-#include<stdio.h>
-#include<unistd.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+#include <unistd.h>
 
-#include<sys/socket.h>
-#include<sys/select.h>
-#include<sys/time.h>
+#include <sys/socket.h>
+#include <sys/select.h>
+#include <sys/time.h>
 
-#include<arpa/inet.h>
-#include<netinet/in.h>
-#include<errno.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <errno.h>
 
-//===== COSTANTI ==================
-#define MAX_DIM_CMD     12	//comando piu' lungo: !disconnect (11 chars) + \0
-#define N_CMD	        7	//ci sono 7 comandi
-#define MAX_LENGTH 	    25	//max lunghezza username	
+//===== COSTANTS ==================
+
+#define MAX_DIM_CMD     12	//max dimension commands
+#define N_CMD	        7	//available commands
+#define MAX_LENGTH 	    25	//max length of username	
 #define HELP_MENU "Sono disponibili i seguenti comandi:\n * !help --> mostra l'elenco dei comandi disponibili\n * !who --> mostra l'elenco dei client connessi al server\n * !connect nome_client --> avvia una partita con l'utente nome_client\n * !disconnect --> disconnette il client dall'attuale partita intrapresa con un altro peer\n * !quit --> disconnette il client dal server\n * !show_map --> mostra la mappa di gioco\n * !hit num_cell --> marca la casella num_cell (valido solo quando e' il proprio turno)\n"
+//TODO: translate help
 //=================================
 
-//===== VARIABILI =================
+
+//===== VARIABLES =================
 //socket
 int server_sd,
     client_sd;
 		
-//configurazione
+//config variables
 struct sockaddr_in  server_addr,
                     client_addr,
                     my_addr;
 		
-//dati miei
+//client data
 char 		    my_username[MAX_LENGTH];
 unsigned long   my_IP;
 unsigned short	my_UDP_port;	//da 0 a 65535
 char		    my_mark;
 
-//dati avversario
-char		    enemy_username[MAX_LENGTH];
-unsigned long	enemy_IP;
-unsigned short	enemy_UDP_port;	//da 0 a 65535
-char		    enemy_mark;
+//other client data
+char		    client_username[MAX_LENGTH];
+unsigned long	client_IP;
+unsigned short	client_UDP_port;	//da 0 a 65535
+char		    client_mark;
 
 int	my_turn = 1;
 
@@ -49,15 +52,15 @@ char commands[N_CMD][MAX_DIM_CMD] = {
 	"!quit",
 	"!connect",
 	"!disconnect",
-	"!show_map",
-	"!hit"
+	"!show_map", 	//not used, could be used to show history of conversation instead
+	"!hit"			//deprecated
 };
 
-char	game_grid[9];
-int	    empty_cells;
+char	game_grid[9];	//deprecated
+int	    empty_cells;	//deprecated
 
-char 	shell;          // '>' = shell comandi, '#' = shell partita
-int	    show_shell;	    //0=don't print shell character, 1=print
+char 	shell;          // '>' = command shell, '#' = conversation shell
+int	    show_shell;	    //0 = don't print shell character, 1 = print
 
 //set per select
 fd_set	master,	        //master file descriptor list
@@ -78,7 +81,7 @@ int valid_port(int port) {
 	return 1;
 }
 
-//------ check_win ----- //ritorna simbolo vincitore (or '-'), 'N' altrimenti
+//------ check_win ----- //ritorna simbolo vincitore (or '-'), 'N' altrimenti //deprecated
 char check_win() {
 	if(game_grid[6]==game_grid[7] && game_grid[7]==game_grid[8]) return game_grid[6]; //tris prima riga
 	if(game_grid[3]==game_grid[4] && game_grid[4]==game_grid[5]) return game_grid[3]; //tris seconda riga
@@ -151,9 +154,9 @@ void cmd_connect() {
             length;
 	char 	cmd = 'c';
 	
-	//controllo se username e' il mio
-	if(strcmp(my_username, enemy_username)==0) { //giocare contro me stesso
-		printf("non puoi giocare contro te stesso!!\n");
+	//check if the username is the same as the client
+	if( strcmp (my_username, client_username)==0) { //giocare contro me stesso
+		printf("You can't chat with yourself!\nWell actually you can but it's kind of sad isn't it?");
 		return;
 	}
 	
@@ -176,19 +179,19 @@ void cmd_connect() {
 		printf("cmd_connect error: errore nell'invio del comando al server\n");
 		exit(1);
 	}
-	//invio al server la lunghezza dell'enemy_username
-	length = strlen(enemy_username);
+	//invio al server la lunghezza dell'client_username 
+	length = strlen(client_username);
 	ret = send(server_sd, (void *)&length, sizeof(length), 0);
 	if (ret==-1 || ret<sizeof(ret))
 	{
-		printf("cmd_connect error: errore nell'invio dimensione enemy_username al server\n");
+		printf("cmd_connect error: errore nell'invio dimensione client_username al server\n");
 		exit(1);
 	}
-	//invio al server l'enemy_username
-	ret = send(server_sd, (void *)enemy_username, length, 0);
+	//invio al server l'client_username CIFRARE
+	ret = send(server_sd, (void *)client_username, length, 0);
 	if (ret==-1 || ret<length)
 	{
-		printf("cmd_connect error: errore nell'invio di enemy_username al server\n");
+		printf("cmd_connect error: errore nell'invio di client_username al server\n");
 		exit(1);
 	}
 	
@@ -212,7 +215,7 @@ void cmd_disconnect(int end) {
 	}
 	
 	if(end==1) //partita finita
-		printf("Disconnesso da %s...\n", enemy_username);
+		printf("Disconnesso da %s...\n", client_username);
 	
 	if(end!=2) {
 		ret = send(server_sd, (void *)&cmd, sizeof(char), 0); //informo il server
@@ -308,30 +311,30 @@ void cmd_hit(int cell) {
 		printf("HAI VINTO!!\n");
 		cmd_disconnect(1);	//1 per indicare che non ho abbandonato la partita
 	}
-	if(check_win()!=my_mark && check_win()!=enemy_mark && empty_cells==0) { //pareggio
+	if(check_win()!=my_mark && check_win()!=client_mark && empty_cells==0) { //pareggio
 		printf("PAREGGIO!!\n");
 		cmd_disconnect(1);  //1 per indicare che non ho abbandonato la partita
 	}
 	
-	printf("E' il turno di %s\n", enemy_username);
+	printf("E' il turno di %s\n", client_username);
 	return;
 }
 
 //------ cmd_hit_received ----
 void cmd_hit_received(int cell) {
-	game_grid[cell] = enemy_mark;
+	game_grid[cell] = client_mark;
 	empty_cells--;
 	my_turn = 1;
-	printf("%s ha marcato la cella numero %d\n", enemy_username, cell+1);
+	printf("%s ha marcato la cella numero %d\n", client_username, cell+1);
 	cmd_show_map(); //stampo il campo di gioco
 	printf("E' il tuo turno:\n");
 	
 	//controllo se la partita e' finita
-	if(check_win()==enemy_mark) { //ho perso
+	if(check_win()==client_mark) { //ho perso
 		printf("HAI PERSO!!\n");
 		cmd_disconnect(1);	//1 per indicare che non ho abbandonato la partita
 	}
-	if(check_win()!=my_mark && check_win()!=enemy_mark && empty_cells==0) { //pareggio
+	if(check_win()!=my_mark && check_win()!=client_mark && empty_cells==0) { //pareggio
 		printf("PAREGGIO!!\n");
 		cmd_disconnect(1);  //1 per indicare che non ho abbandonato la partita
 	}
@@ -362,7 +365,7 @@ void get_input() {
                     if(shell=='#')
                         printf("stai gia' giocando!\n");
                     else {
-                        scanf("%s", enemy_username);
+                        scanf("%s", client_username);
                         cmd_connect(); //controlli effettuati in cmd_connect()
                     }
                     break;
@@ -536,21 +539,21 @@ void start_game() {
 	int ret;
 	
 	my_mark = 'X';
-	enemy_mark = 'O';
-	printf("%s ha accettato la partita\n", enemy_username);
-	printf("Partita avviata con %s\n", enemy_username);
+	client_mark = 'O';
+	printf("%s ha accettato la partita\n", client_username);
+	printf("Partita avviata con %s\n", client_username);
 	printf("Il tuo simbolo e': %c\n", my_mark);
 	printf("E' il tuo turno:\n");
 	
 	//ricevo dal server la porta di enemy
-	ret = recv(server_sd, (void *)&enemy_UDP_port, sizeof(enemy_UDP_port), 0);
+	ret = recv(server_sd, (void *)&client_UDP_port, sizeof(client_UDP_port), 0);
 	if(ret==-1) {
 		printf("start_game error: errore nel ricevere la porta su cui e' in ascolto l'avversario!\n");
 		exit(1);
 	}
 
 	//ricevo dal server l'IP di enemy
-	ret = recv(server_sd, (void *)&enemy_IP, sizeof(enemy_IP), 0);
+	ret = recv(server_sd, (void *)&client_IP, sizeof(client_IP), 0);
 	if(ret==-1) {
 		printf("start_game error: errore nel ricevere l'indirizzo dell'avversario!\n");
 		exit(1);
@@ -559,10 +562,10 @@ void start_game() {
 	//inizializzo parametri avversario
 	memset(&client_addr, 0, sizeof(client_addr));
 	client_addr.sin_family = AF_INET;
-	client_addr.sin_port = enemy_UDP_port;
-	client_addr.sin_addr.s_addr = enemy_IP;
+	client_addr.sin_port = client_UDP_port;
+	client_addr.sin_addr.s_addr = client_IP;
 	
-	enemy_UDP_port = ntohs(enemy_UDP_port);
+	client_UDP_port = ntohs(client_UDP_port);
 		
 	//aggiorno timer
 	timer.tv_sec = 60;
@@ -587,14 +590,14 @@ void manage_request() {
 		exit(1);
 	}
 	
-	memset(enemy_username, 0, MAX_LENGTH);
+	memset(client_username, 0, MAX_LENGTH);
 	//ricevo il nome del client che mi chiede di giocare
-	ret = recv(server_sd, (void *)enemy_username, length, 0);
+	ret = recv(server_sd, (void *)client_username, length, 0);
 	if(ret==-1) {
 		printf("manage_request error: errore in ricezione nome client!\n");
 		exit(1);
 	}
-	enemy_username[length] = '\0';
+	client_username[length] = '\0';
 
 	if(shell=='#') { //occupato
 		//notifico al server che sono gia' impegnato
@@ -607,7 +610,7 @@ void manage_request() {
 		return;
 	}
 	
-	printf("%s ti ha chiesto di giocare!\n", enemy_username);
+	printf("%s ti ha chiesto di giocare!\n", client_username);
 	
 	do {
 		scanf("%c", &res);	//metto questo perche' se no stampa 2 volte "accettare..." perche' legge senza aspettare che digiti la prima volta!
@@ -618,11 +621,11 @@ void manage_request() {
 	
 	if(res=='y' || res=='Y') {
 		my_mark = 'O';
-		enemy_mark = 'X';
+		client_mark = 'X';
 		my_turn = 0;
 		printf("Richiesta di gioco accettata\n");
 		printf("Il tuo simbolo e': %s\n", &my_mark);
-		printf("E' il turno di %s\n", enemy_username);
+		printf("E' il turno di %s\n", client_username);
 		cmd = 'a';
 		ret = send(server_sd, (void *)&cmd, sizeof(cmd), 0);
 		if(ret==-1) {
@@ -681,8 +684,8 @@ void get_from_server() {
                         exit(1);
                     }
                     switch(cmd) {
-                        case 'i': {	//enemy_username non esiste!
-                                    printf("Impossibile connettersi a %s: utente inesistente!\n", enemy_username);
+                        case 'i': {	//client_username non esiste!
+                                    printf("Impossibile connettersi a %s: utente inesistente!\n", client_username);
                                     break;
                         }
                         case 'a': {	//enemy ha accettato
@@ -690,11 +693,11 @@ void get_from_server() {
                                     break;
                         }
                         case 'r': {	//enemy ha rifiutato
-                                    printf("Impossibile connettersi a %s: l'utente ha rifiutato la partita!\n", enemy_username);
+                                    printf("Impossibile connettersi a %s: l'utente ha rifiutato la partita!\n", client_username);
                                     break;
                         }
                         case 'b': { //enemy e' occupato
-                                    printf("Impossibile connettersi a %s: l'utente e' gia' occupato!\n", enemy_username);
+                                    printf("Impossibile connettersi a %s: l'utente e' gia' occupato!\n", client_username);
                                     break;
                         }
                         default : {	//non dovrebbe succedere
