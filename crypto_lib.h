@@ -3,6 +3,16 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <openssl/evp.h>
+#include <openssl/aes.h>
+#include <openssl/rand.h>
+
+//Encryption
+#define AES_128_CBC EVP_aes_128_cbc()
+#define AES_256_CBC EVP_aes_256_cbc()
+#define AES_128_CBC_BIT_MODE 128
+#define AES_256_CBC_BIT_MODE 256
+
+#define NONCE_SIZE 4
 
 char * retrieve_key() { 		//TODO: reads password from file
  /*int ret;
@@ -28,7 +38,21 @@ char * retrieve_key() { 		//TODO: reads password from file
    return "fuckdis";
   
 }
+//Initialization for secret,key and block sizes
+int enc_initialization(int *secret_size,int *key_size, int *block_size) {
+	*secret_size = EVP_CIPHER_key_length(AES_256_CBC);
+	*key_size = EVP_CIPHER_key_length(AES_128_CBC);
+	*block_size = EVP_CIPHER_block_size(AES_256_CBC);
+}
 
+//Generates a char nonce
+unsigned char* generate_nonce(){
+	unsigned char* nonce = (unsigned char*)malloc(NONCE_SIZE*sizeof(unsigned char));
+	RAND_seed(nonce, NONCE_SIZE);
+	RAND_bytes(nonce,NONCE_SIZE);
+}
+
+//old
 int create_enc_context(EVP_CIPHER_CTX *ctx, int* block_size) {
    int key_size; 			// cryptographic key size
    char* key; 				// cryptographic key 

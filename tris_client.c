@@ -767,8 +767,41 @@ void get_from_client() {
 
 //=================================
 
+//------------Sara-----------------
+unsigned char* first_msg(int msg_size, unsigned char* my_ID, unsigned char* other_ID, unsigned char* nonce){
+	int id_size = 4; //TMP - to be defined then change to ID_SIZE
+	unsigned char* msg = calloc (msg_size, sizeof(unsigned char));
+	memcpy(msg, my_ID, id_size);
+	memcpy(msg+id_size, other_ID, id_size);
+	memcpy(msg+id_size*2, nonce, NONCE_SIZE);
+	return msg;	
+}
+//------------Sara-----------------
+
 //------- main ------
 int main(int num, char* args[]) {   //remember: il primo arg e' ./client
+	
+	//Sara
+	//sarebbe meglio mettere lunghezza di ID fissa
+	int secret_size;
+	int key_size;
+	int block_size;
+	int id_size = 4; //to be defined is approved by Alex :3 
+	
+	enc_initialization(&secret_size, &key_size, &block_size);
+	
+	unsigned char* my_ID = "Sara"; //to be changed with the actual login name
+	unsigned char* other_ID = "Alex"; //TMP - to be changed with the other client name
+	unsigned char* secret = calloc(secret_size, sizeof(unsigned char));
+	secret = retrieve_key(); //to be changed, now it returns "fuckdis"
+	
+	int msg1_size = id_size*2+NONCE_SIZE; //A,B,Na
+	unsigned char* msg1 = calloc(msg1_size, sizeof(unsigned char));
+	unsigned char *my_nonce = calloc (NONCE_SIZE, sizeof(unsigned char));
+	my_nonce = generate_nonce();
+	msg1 = first_msg(msg1_size, my_ID, other_ID, my_nonce);
+
+	//Sara
 	
 	int ret,
         i;
