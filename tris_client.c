@@ -769,7 +769,7 @@ void get_from_client() {
 
 //------------Sara-----------------
 unsigned char* first_msg(int msg_size, unsigned char* my_ID, unsigned char* other_ID, unsigned char* nonce){
-	int id_size = 4; //TMP - to be defined then change to ID_SIZE
+	int id_size = 4; 						//TMP - to be defined then change to ID_SIZE
 	unsigned char* msg = calloc (msg_size, sizeof(unsigned char));
 	memcpy(msg, my_ID, id_size);
 	memcpy(msg+id_size, other_ID, id_size);
@@ -779,30 +779,31 @@ unsigned char* first_msg(int msg_size, unsigned char* my_ID, unsigned char* othe
 //------------Sara-----------------
 
 //------- main ------
-int main(int num, char* args[]) {   //remember: il primo arg e' ./client
+int main(int num, char* args[]) {   		//remember: il primo arg e' ./client
 	
 	//Sara
 	
-	//Id should have a defined lenght for simplicity
+	//ID should have a defined lenght for simplicity
 	int secret_size;
 	int key_size;
 	int block_size;
-	int id_size = 4; //to be defined is approved by Alex :3 
+	int id_size = 4; 						//to be defined if approved by Alex :3 
 	
 	enc_initialization(&secret_size, &key_size, &block_size);
 	
-	unsigned char* my_ID = "Sara"; //to be changed with the actual login name
-	unsigned char* other_ID = "Alex"; //TMP - to be changed with the other client name
+	unsigned char* my_ID = "Sara"; 			//TMP - to be changed with the actual login name
+	unsigned char* other_ID = "Alex"; 		//TMP - to be changed with the other client name
 	unsigned char* secret = calloc(secret_size, sizeof(unsigned char));
-	secret = retrieve_key(4); //to be changed, now it returns "fuckdis"
+	secret = retrieve_key(4); 				//to be changed, now it returns "fuckdis"
 	
-	int msg1_size = id_size*2+NONCE_SIZE; //A,B,Na
+	int msg1_size = id_size*2+NONCE_SIZE; 	//A,B,Na
 	unsigned char* msg1 = calloc(msg1_size, sizeof(unsigned char));
 	unsigned char *my_nonce = calloc (NONCE_SIZE, sizeof(unsigned char));
 	my_nonce = generate_nonce();
 	msg1 = first_msg(msg1_size, my_ID, other_ID, my_nonce);
 	//at this point the first message is ready to be sent out
 	//TODO - concatenate 2nd message contents and use cipher_text = Encrypt_msg (..) to encrypt
+	
 	//Sara
 	
 	int ret,
@@ -811,41 +812,41 @@ int main(int num, char* args[]) {   //remember: il primo arg e' ./client
 
 	//controllo numero parametri
 	if(num!=3) {
-		printf("numero di parametri errato!\n");
+		printf("Wrong number of parameter!\n");
 		return -1;
 	}
 	
-	//prova a connettersi al server
+	//Server connection
 	connect_to_server(args[1], atoi(args[2]));
-	printf("connessione al server %s (porta %s) effettuata con successo", args[1], args[2]);
+	printf("Connection with the server successfully established %s on port (port %s)", args[1], args[2]);
 	
-	//visualizza help
+	//Display help
 	printf("\n%s\n", HELP_MENU);
 	
-	//chiedo nome e UDP port
+	//Server login
 	log_in_server();
 	
-	//apro UDP socket
+	//Opens UDP socket
 	client_sd = socket(AF_INET, SOCK_DGRAM, 0);
 	if(client_sd==-1) {
 		printf("errore nella creazione del socket UDP\n");
 		exit(1);
 	}
 	
-	//configurazione
+	//INET configuration
 	memset(&my_addr, 0, sizeof(my_addr));
 	my_addr.sin_family = AF_INET;
 	my_addr.sin_port = htons(my_UDP_port);
 	my_addr.sin_addr.s_addr = htonl(INADDR_ANY);
 	
-	//bind
+	//Client bind
 	ret = bind(client_sd, (struct sockaddr*)&my_addr, sizeof(my_addr));
 	if(ret==-1){
 		printf("errore bind\n");
 		exit(1);
 	}
 	
-	//set
+	//Set
 	FD_ZERO(&master);
 	FD_SET(server_sd, &master);
 	FD_SET(client_sd, &master);
@@ -871,23 +872,23 @@ int main(int num, char* args[]) {   //remember: il primo arg e' ./client
 			fflush(stdout);
 		}
 			
-		ret = select(max_fd+1, &tmp_fd, NULL, NULL, time); //attivare timer
+		ret = select(max_fd+1, &tmp_fd, NULL, NULL, time); 	//attivare timer
 		if(ret==-1) {
-			printf("errore select\n");
+			printf("Select error\n");
 			exit(1);
 		}
-		if(ret==0) { //il timer e' scaduto
+		if(ret==0) { 										//timer expired
 			if(my_turn) 
 				printf("il tempo e' scaduto! HAI PERSO!\n");
 			else
 				printf("il tempo dell'avversario e' scaduto! HAI VINTO!\n");
-			cmd_disconnect(1);	//fine partita
+			cmd_disconnect(1);								//fine partita
 			continue;
 		}
 		for(i=0; i<=max_fd; i++) {
-			if(FD_ISSET(i, &tmp_fd)) { //c'e' descrittore pronto
+			if(FD_ISSET(i, &tmp_fd)) { 						//c'e' descrittore pronto
 			
-				if(i==0) {//descrittore pronto e' stdin
+				if(i==0) {									//descrittore pronto e' stdin
 					//leggo comando in input
 					get_input();
 					//aggiorno il timer
@@ -895,16 +896,13 @@ int main(int num, char* args[]) {   //remember: il primo arg e' ./client
 					timer.tv_usec = 0;
 				}
 				
-				if(i==server_sd) {//descrittore pronto e' server
-					//ricevo dal server
-					get_from_server();
+				if(i==server_sd) {							//descrittore pronto e' server
+					get_from_server();						//ricevo dal server
 				}
 				
-				if(i==client_sd) {//descrittore pronto e' client
-					//ricevo da altro peer
-					get_from_client();
-					//aggiorno il timer
-					timer.tv_sec = 60;
+				if(i==client_sd) {							//descrittore pronto e' client
+					get_from_client();						//ricevo da altro peer
+					timer.tv_sec = 60;						//aggiorno il timer
 					timer.tv_usec = 0;
 				}
 			}
