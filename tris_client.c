@@ -18,7 +18,7 @@
 
 #define MAX_DIM_CMD     12	//max dimension commands
 #define N_CMD	        7	//available commands
-#define MAX_LENGTH 	    25	//max length of username	
+#define MAX_LENGTH 	    25	//max length of username/password
 #define HELP_MENU "Sono disponibili i seguenti comandi:\n * !help --> mostra l'elenco dei comandi disponibili\n * !who --> mostra l'elenco dei client connessi al server\n * !connect nome_client --> avvia una partita con l'utente nome_client\n * !disconnect --> disconnette il client dall'attuale partita intrapresa con un altro peer\n * !quit --> disconnette il client dal server\n * !show_map --> mostra la mappa di gioco\n * !hit num_cell --> marca la casella num_cell (valido solo quando e' il proprio turno)\n"
 //TODO: translate help
 //=================================
@@ -36,6 +36,7 @@ struct sockaddr_in  server_addr,
 		
 //client data
 char 		    my_username[MAX_LENGTH];
+char		my_password[MAX_LENGTH];
 unsigned long   my_IP;
 unsigned short	my_UDP_port;	//da 0 a 65535
 char		    my_mark;
@@ -409,27 +410,27 @@ void connect_to_server(char *addr, int port) {
 
 	memset(&server_addr, 0, sizeof(server_addr));
 	
-	//controllo indirizzo
+	//check address
 	ret = inet_pton(AF_INET, addr, &server_addr.sin_addr.s_addr);
 	if(ret==0) {
-		printf("indirizzo non valido!\n");
+		printf("address not valid!\n");
 		exit(1);
 	}
-	//controllo porta
+	//check port
 	if(!valid_port(port)) {
-		printf("porta non valida! (must be in [1025, 65535])\n");
+		printf("port not valid! (must be in [1025, 65535])\n");
 		exit(1);
 	}	
 	server_addr.sin_port = htons(port);
 	server_sd = socket(AF_INET, SOCK_STREAM, 0);
 	if(server_sd==-1) {
-		printf("errore nella creazione del socket (server)\n");
+		printf("error in socket creation\n");
 		exit(1);
 	}
 	server_addr.sin_family = AF_INET;
 	ret = connect(server_sd, (struct sockaddr *)&server_addr, sizeof(server_addr));
 	if(ret==-1) {
-		printf("errore nella connect\n");
+		printf("error in connect\n");
 		exit(1);
 	}
 	return;
@@ -438,58 +439,75 @@ void connect_to_server(char *addr, int port) {
 //------- log_in_server ------
 void log_in_server() {
 	int 	length,
-            ret;
+        ret;
 	char	cmd;
 	unsigned short port_tmp;
 	char    UDP[7];
 	
 	memset(UDP, 0, 7);
 		
-	printf("\nInserisci il tuo nome: ");
+	printf("\nInsert username: ");
 	scanf("%s", my_username);
+	printf("\nInsert password: ");
+	scanf("%s", my_password);
 	do {
-		printf("Inserisci la porta UDP di ascolto: ");
+		printf("Insert listening UDP port: ");
 		scanf("%s", UDP);
 		my_UDP_port = atoi(UDP);
 		if(!valid_port(my_UDP_port))
-			printf("porta non valida! (must be in [1025, 65535])\n");
+			printf("port not valid! (must be in [1025, 65535])\n");
 	}while(!valid_port(my_UDP_port));
 	
-	//invio lunghezza username al server
+	//send (to server): username length
 	length = strlen(my_username);
 	ret = send(server_sd, (void *)&length, sizeof(length), 0);
 	if(ret==-1 || ret<sizeof(length)) {
-		printf("log_in_server error: errore in invio lunghezza nome\n");
+		printf("log_in_server error: error in sending username length\n");
 		exit(1);
 	}
 	
-	//invio username al server
+	//send (to server): username
 	ret = send(server_sd, (void *)my_username, length, 0);
 	if(ret==-1 || ret<length) {
-		printf("log_in_server error: errore in invio username\n");
+		printf("log_in_server error: error in sending username\n");
 		exit(1);
 	}
 	
-	//invio porta al server
+	//send (to server): password length (or fixed length?)
+	length = strlen(my_password);
+	ret = send(server_sd, (void *)&length, sizeof(length), 0);
+	if(ret==-1 || ret<sizeof(length)) {
+		printf("log_in_server error: error in sending password length\n");
+		exit(1);
+	}
+	
+	//send (to server): password (to be encrypted)
+	ret = send(server_sd, (void *)my_password, length, 0);
+	if(ret==-1 || ret<length) {
+		printf("log_in_server error: error in sending password\n");
+		exit(1);
+	}
+	
+	//send (to server): UDP port
 	port_tmp = htons(my_UDP_port);
 	ret = send(server_sd, (void *)&port_tmp, sizeof(port_tmp), 0);
 	if(ret==-1 || ret<sizeof(port_tmp)) {
-		printf("log_in_server error: errore in invio porta UDP\n");
+		printf("log_in_server error: error in sending UDP port\n");
 		exit(1);
 	}
 	
-	//controllo cosa ha risposto il server
+	//check server reply
 	ret = recv(server_sd, (void *)&cmd, sizeof(cmd), 0);
 	if(ret==-1) {
-		printf("log_in_server error: errore in ricezione risposta dal server\n");
+		printf("log_in_server error: error in reception\n");
 		exit(1);
 	}
-	if(cmd=='e') {	//username gia' esistente
-		printf("lo username scelto e' gia' esistente!\n");
-		exit(2);	//esce anziche' richiedere il nome
+	if(cmd=='e') {	//username already existent
+		printf("chosen username already existent!\n");
+		exit(2);	//exit instead of repeating login procedure
 	}
 	/*
-	if(cmd=='@') //connessione ok!
+	if(cmd=='@') //connection ok!
 	*/
 	return;
 }
@@ -497,9 +515,9 @@ void log_in_server() {
 //------- print_client_list ----
 void print_client_list(int tot) {
 	int 	i,
-            ret,
-            length,
-            status;		//remember 0=free 1=busy
+        ret,
+        length,
+        status;		//remember 0=free 1=busy
 	char	client_name[MAX_LENGTH],
 				stat[5];
 	

@@ -14,13 +14,15 @@
 
 //===== COSTANTS ==================
 #define MAX_CONNECTION 	10
-#define MAX_LENGTH 		25	//max lunghezza username
+#define MAX_LENGTH 			25	//max lunghezza username
+#define SERVER_FILE			"/server_file"	//file containing usr-pwd combinations
 //=================================
 
 //===== VARIABILI =================
 //client
 struct client {
 	char 	        username[MAX_LENGTH];
+	char					password[MAX_LENGTH];
 	short int	    UDP_port;
 	int		        socket;
 	unsigned long	address;
@@ -34,6 +36,7 @@ int	tot_users = 0;
 
 struct client *client; //client che comunica con il server
 
+//TODO posso metterle nel main? controllare
 //configurazione
 struct sockaddr_in 	server_addr,
                     client_addr;
@@ -373,8 +376,35 @@ void manage_client(int sd) {
 	}
 }
 
+//----- credentials_ok -----
+int credentials_ok(char *username, char *password) {
+	char tmp_usr[MAX_LENGTH],
+			 tmp_pwd[MAX_LENGTH];
+	
+	//open file
+	FILE *fp;
+	fp = fopen(SERVER_FILE, "r");
+	if(fp == NULL) {
+		//error file not found!
+		return -1;
+	}
+	
+	while(fscanf(fp, "%s %s", tmp_usr, tmp_pwd) != EOF) {
+		printf("read values: %s, %s\n", tmp_usr, tmp_pwd);
+		if(strcmp(tmp_usr, username) == 0) 
+			if(strcmp(tmp_pwd, password) == 0) {
+				fclose(fp);
+				return 1;
+			}
+	}
+	
+	//close file
+	fclose(fp);
+	return 0;
+}
+
 //----- add_client ---------
-void add_client(int sd) {
+int add_client(int sd) {
 	int 	ret,
             length;
 	char 	cmd;
@@ -383,32 +413,54 @@ void add_client(int sd) {
 	
 	length = sizeof(client_addr);
 	memset(&client_addr, 0, length);
-	getpeername(sd, (struct sockaddr *)&client_addr, (socklen_t *)&length); //trovo l'indirizzo del client che si e' connesso
+	getpeername(sd, (struct sockaddr *)&client_addr, (socklen_t *)&length); //find new connected client's address
 	
 	new_client->address = client_addr.sin_addr.s_addr;
 	new_client->socket  = sd;
 	new_client->status  = 0;
 	new_client->enemy   = NULL;
 	
-	//ricezione lunghezza nome
+	//receive: username length
 	ret = recv(sd, (void *)&length, sizeof(length), 0);
 	if(ret==-1) {
-		printf("add_client error: errore in ricezione lunghezza nome\n");
+		printf("add_client error: error in receiving username length\n");
 		exit(1);
 	}
 	
-	//ricezione nome
+	//receive: username
 	ret = recv(sd, (void *)new_client->username, length, 0);
 	if(ret==-1) {
-		printf("add_client error: errore in ricezione nome\n");
+		printf("add_client error: error in receiving username\n");
 		exit(1);
 	}
 	new_client->username[length] = '\0';
 	
-	//ricezione porta UDP
+	//receive: password length
+	ret = recv(sd, (void *)&length, sizeof(length), 0);
+	if(ret==-1) {
+		printf("add_client error: error in receiving password length\n");
+		exit(1);
+	}
+	
+	//receive: password (to be decrypted)
+	ret = recv(sd, (void *)new_client->password, length, 0);
+	if(ret==-1) {
+		printf("add_client error: error in receiving password\n");
+		exit(1);
+	}
+	new_client->password[length] = '\0';
+	
+	//check if username & password are correct
+	if(!credentials_ok(new_client->username, new_client->password)) {
+		printf("add_client error: login failed!\n");
+		//instead of only return, maybe notify client (no disconnection, just need to reinsert data)
+		return 0;
+	}
+	
+	//receive: UDP port
 	ret = recv(sd, (void *)&new_client->UDP_port, sizeof(int), 0);
 	if(ret==-1) {
-		printf("add_client error: errore in ricezione porta UDP\n");
+		printf("add_client error: error in receiving UDP port\n");
 		exit(1);
 	}
 	
@@ -420,26 +472,28 @@ void add_client(int sd) {
 		cmd = 'e'; //exists
 		ret = send(sd, (void *)&cmd, sizeof(cmd), 0);
 		if(ret==-1) {
-			printf("add_client error: errore invio exists\n");
+			printf("add_client error: error in reply\n");
 			exit(1);
 		}
-		//chiudo connessione con il client
+		//close connection with client
 		client = new_client;
 		cmd_quit(1);
 		return; 
 	}
-	//connessione accettata, devo mandare qualcosa al client? per sicurezza mando @ che non significa niente
+	//connection accepted, need to send something? send @ to be sure
 	cmd = '@';
 	ret = send(sd, (void *)&cmd, sizeof(cmd), 0);
 	if(ret==-1) {
-        printf("add_client error: errore invio connessione ok\n");
+        printf("add_client error: error in sending connection ok\n");
         exit(1);
     }
 	
-	//inserimento in lista client connessi
+	//add connected client to the list
 	add_to_list(new_client);
-	printf("%s si e' connesso\n", new_client->username);
-	printf("%s e' libero\n", new_client->username);
+	printf("%s is connected\n", new_client->username);
+	printf("%s is free\n", new_client->username);
+	
+	return 1;
 }
 
 //=================================
@@ -524,11 +578,13 @@ int main(int num, char* args[]) {   //remember: il primo arg e' ./server
 						printf("errore accept\n");
 						exit(1);
 					}
-					printf("Connessione stabilita con il client\n");
-					FD_SET(new_client_sd, &master);	//aggiungo il fd del client ai socket da controllare
-					if(new_client_sd>max_fd)
-						max_fd = new_client_sd;
-					add_client(new_client_sd); 			//aggiungo client alla lista
+					//check new client credential
+					if(add_client(new_client_sd)) { 			//aggiungo client alla lista
+						printf("Connessione stabilita con il client\n");
+						FD_SET(new_client_sd, &master);	//aggiungo il fd del client ai socket da controllare
+						if(new_client_sd>max_fd)
+							max_fd = new_client_sd;
+					}
 				}
 				else {		//e' un client gia' connesso
 					manage_client(i);	//gestisce i dati inviati dal client
