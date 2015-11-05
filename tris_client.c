@@ -18,7 +18,7 @@
 
 #define MAX_DIM_CMD     12	//max dimension commands
 #define N_CMD	        7	//available commands
-#define MAX_LENGTH 	    25	//max length of username/password
+#define MAX_LENGTH 	    10	//max length of username/password
 #define HELP_MENU "Sono disponibili i seguenti comandi:\n * !help --> mostra l'elenco dei comandi disponibili\n * !who --> mostra l'elenco dei client connessi al server\n * !connect nome_client --> avvia una partita con l'utente nome_client\n * !disconnect --> disconnette il client dall'attuale partita intrapresa con un altro peer\n * !quit --> disconnette il client dal server\n * !show_map --> mostra la mappa di gioco\n * !hit num_cell --> marca la casella num_cell (valido solo quando e' il proprio turno)\n"
 //TODO: translate help
 //=================================
@@ -183,17 +183,11 @@ void cmd_connect() {
 		printf("cmd_connect error: errore nell'invio del comando al server\n");
 		exit(1);
 	}
-	//invio al server la lunghezza dell'client_username 
-	length = strlen(client_username);
-	ret = send(server_sd, (void *)&length, sizeof(length), 0);
-	if (ret==-1 || ret<sizeof(ret))
-	{
-		printf("cmd_connect error: errore nell'invio dimensione client_username al server\n");
-		exit(1);
-	}
-	//invio al server l'client_username CIFRARE
-	ret = send(server_sd, (void *)client_username, length, 0);
-	if (ret==-1 || ret<length)
+	
+	//TODO invia il first message
+	//invio al server client_username NON CIFRARE
+	ret = send(server_sd, (void *)client_username, MAX_LENGTH, 0);
+	if (ret==-1 || ret<MAX_LENGTH)
 	{
 		printf("cmd_connect error: errore nell'invio di client_username al server\n");
 		exit(1);
@@ -370,6 +364,7 @@ void get_input() {
                         printf("stai gia' giocando!\n");
                     else {
                         scanf("%s", client_username);
+						add_padding(client_username);
                         cmd_connect(); //controlli effettuati in cmd_connect()
                     }
                     break;
@@ -436,6 +431,61 @@ void connect_to_server(char *addr, int port) {
 	return;
 }
 
+void add_padding(unsigned char* text) {
+	int i;
+	for(i=strlen(text); i<MAX_LENGTH; i++) {
+		text[i] = '$';
+	}
+}
+
+void remove_padding(unsigned char* text) {
+	int i;
+	for(i=0; i<MAX_LENGTH; i++) {
+		if(text[i]=='$') {
+			text[i] = '\0';
+			break;
+		}
+	}
+}
+
+//------- print_client_list ----
+void print_client_list(int tot) {
+	int 	i,
+        ret,
+        length,
+        status;		//remember 0=free 1=busy
+	char	client_name[MAX_LENGTH],
+				stat[5];
+	
+	for(i=0; i<tot; i++) {
+		memset(client_name, 0, MAX_LENGTH);	//reset di client_name
+		
+		
+		//ricevo il nome del client
+		ret = recv(server_sd, (void *)client_name, MAX_LENGTH, 0);
+		if(ret==-1) {
+			printf("get_from_server error: errore in ricezione nome client dal server!\n");
+			exit(1);
+		}
+		client_name[MAX_LENGTH] = '\0';
+		//ricevo lo stato del client
+		ret = recv(server_sd, (void *)&status, sizeof(int), 0);
+		if(ret==-1) {
+			printf("get_from_server error: errore in ricezione stato client dal server!\n");
+			exit(1);
+		}
+		
+		if(status==0)
+			strncpy(stat, "free", sizeof(stat)-1);
+		else
+			strncpy(stat, "busy", sizeof(stat)-1);
+		stat[4] = '\0';
+		remove_padding(client_name);
+		printf("\t%d)  %s (%s)\n", i, client_name, stat);
+	}
+	return;
+}
+
 //------- log_in_server ------
 void log_in_server() {
 	int 	length,
@@ -446,10 +496,10 @@ void log_in_server() {
 	
 	memset(UDP, 0, 7);
 		
-	printf("\nInsert username: ");
+	printf("\nInsert username (max %d characters): ", MAX_LENGTH);
 	scanf("%s", my_username);
-	printf("\nInsert password: ");
-	scanf("%s", my_password);
+	add_padding(my_username);
+	
 	do {
 		printf("Insert listening UDP port: ");
 		scanf("%s", UDP);
@@ -458,33 +508,10 @@ void log_in_server() {
 			printf("port not valid! (must be in [1025, 65535])\n");
 	}while(!valid_port(my_UDP_port));
 	
-	//send (to server): username length
-	length = strlen(my_username);
-	ret = send(server_sd, (void *)&length, sizeof(length), 0);
-	if(ret==-1 || ret<sizeof(length)) {
-		printf("log_in_server error: error in sending username length\n");
-		exit(1);
-	}
-	
 	//send (to server): username
-	ret = send(server_sd, (void *)my_username, length, 0);
-	if(ret==-1 || ret<length) {
+	ret = send(server_sd, (void *)my_username, MAX_LENGTH, 0);
+	if(ret==-1 || ret<MAX_LENGTH) {
 		printf("log_in_server error: error in sending username\n");
-		exit(1);
-	}
-	
-	//send (to server): password length (or fixed length?)
-	length = strlen(my_password);
-	ret = send(server_sd, (void *)&length, sizeof(length), 0);
-	if(ret==-1 || ret<sizeof(length)) {
-		printf("log_in_server error: error in sending password length\n");
-		exit(1);
-	}
-	
-	//send (to server): password (to be encrypted)
-	ret = send(server_sd, (void *)my_password, length, 0);
-	if(ret==-1 || ret<length) {
-		printf("log_in_server error: error in sending password\n");
 		exit(1);
 	}
 	
@@ -509,52 +536,12 @@ void log_in_server() {
 	/*
 	if(cmd=='@') //connection ok!
 	*/
+	
+	cmd_who();
+	
 	return;
 }
 	
-//------- print_client_list ----
-void print_client_list(int tot) {
-	int 	i,
-        ret,
-        length,
-        status;		//remember 0=free 1=busy
-	char	client_name[MAX_LENGTH],
-				stat[5];
-	
-	for(i=0; i<tot; i++) {
-		memset(client_name, 0, MAX_LENGTH);	//reset di client_name
-		
-		//ricevo lunghezza nome
-		ret = recv(server_sd, (void *)&length, sizeof(int), 0);
-		if(ret==-1) {
-			printf("print_client_list error: errore in ricezione lunghezza nome client dal server!\n");
-			exit(1);
-		}
-		//ricevo il nome del client
-		ret = recv(server_sd, (void *)client_name, length, 0);
-		if(ret==-1) {
-			printf("get_from_server error: errore in ricezione nome client dal server!\n");
-			exit(1);
-		}
-		client_name[length] = '\0';
-		//ricevo lo stato del client
-		ret = recv(server_sd, (void *)&status, sizeof(int), 0);
-		if(ret==-1) {
-			printf("get_from_server error: errore in ricezione stato client dal server!\n");
-			exit(1);
-		}
-		
-		if(status==0)
-			strncpy(stat, "free", sizeof(stat)-1);
-		else
-			strncpy(stat, "busy", sizeof(stat)-1);
-		stat[4] = '\0';
-		
-		printf("\t%d)  %s (%s)\n", i, client_name, stat);
-	}
-	return;
-}
-
 //------- start_game ------
 void start_game() {
 	int ret;
@@ -566,6 +553,7 @@ void start_game() {
 	printf("Il tuo simbolo e': %c\n", my_mark);
 	printf("E' il tuo turno:\n");
 	
+	//TODO togli receive, parametri non più in chiaro ma in messaggio crittato
 	//ricevo dal server la porta di enemy
 	ret = recv(server_sd, (void *)&client_UDP_port, sizeof(client_UDP_port), 0);
 	if(ret==-1) {
@@ -594,6 +582,8 @@ void start_game() {
 	
 	reset();
 	
+	//TODO inviare messaggio crittato con Kab a B, con nonce
+	
 	return;
 }
 
@@ -604,21 +594,15 @@ void manage_request() {
 	char	cmd,
             res;
 	
-	//ricevo lunghezza nome di chi mi chiede di connettersi
-	ret = recv(server_sd, (void *)&length, sizeof(int), 0);
-	if(ret==-1) {
-		printf("manage_request error: errore in ricezione lunghezza nome client!\n");
-		exit(1);
-	}
 	
 	memset(client_username, 0, MAX_LENGTH);
 	//ricevo il nome del client che mi chiede di giocare
-	ret = recv(server_sd, (void *)client_username, length, 0);
+	ret = recv(server_sd, (void *)client_username, MAX_LENGTH, 0);
 	if(ret==-1) {
 		printf("manage_request error: errore in ricezione nome client!\n");
 		exit(1);
 	}
-	client_username[length] = '\0';
+	client_username[MAX_LENGTH] = '\0';
 
 	if(shell=='#') { //occupato
 		//notifico al server che sono gia' impegnato
@@ -653,6 +637,7 @@ void manage_request() {
 			printf("manage_request error: errore in invio richiesta accettata al server!\n");
 			exit(1);
 		}
+		//TODO send messaggio in cui accetto con nonce
 		reset();
 	}
 	else {	//richiesta rifiutata
@@ -710,6 +695,9 @@ void get_from_server() {
                                     break;
                         }
                         case 'a': {	//enemy ha accettato
+									//TODO ricevi messaggio crittato
+									//TODO decritta/scomponi messaggio, retrieve Kab
+									//TODO inizializza parametri B (IP e port)
                                     start_game();
                                     break;
                         }
@@ -750,6 +738,9 @@ void get_from_client() {
 	char	cmd;
 	
 	addrlen = sizeof(client_addr);
+	
+	//TODO lo prendo da qui IP/porta di A? o lo recupero prima?
+	
 	ret = recvfrom(client_sd, (void *)&cmd, sizeof(cmd), 0, (struct sockaddr *)&client_addr, (socklen_t *)&addrlen);
 	if(ret==-1) {
 		printf("get_from_client error: errore in ricezione comando dal client!\n");

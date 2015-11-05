@@ -54,7 +54,8 @@ unsigned char* generate_nonce(){
 	unsigned char* nonce = (unsigned char*)malloc(NONCE_SIZE*sizeof(unsigned char));
 	RAND_seed(nonce, NONCE_SIZE);
 	RAND_bytes(nonce,NONCE_SIZE);
-}
+	return nonce;
+	}
 
 //Checks the freshness of the nonce
 int isFresh(unsigned char* msg, int key_size, unsigned char* my_nonce){

@@ -14,7 +14,7 @@
 
 //===== COSTANTS ==================
 #define MAX_CONNECTION 	10
-#define MAX_LENGTH 			25	//max lunghezza username
+#define MAX_LENGTH 			10	//max lunghezza username
 #define SERVER_FILE			"/server_file"	//file containing usr-pwd combinations
 //=================================
 
@@ -144,18 +144,10 @@ void cmd_who() {
 		exit(1);
 	}
 	while(tmp) {	//finche' ci sono client, ossia tot_user volte
-		length = strlen(tmp->username);
-		
-		//mando la lunghezza di username al client
-		ret = send(client->socket, (void *)&length, sizeof(int), 0);
-		if(ret==-1 || ret<sizeof(length)) {
-			printf("cmd_who error: errore in invio lunghezza nome client!\n");
-			exit(1);
-		} 
 		
 		//mando il nome del client
-		ret = send(client->socket, (void *)tmp->username, length, 0);
-		if(ret==-1 || ret<length) {
+		ret = send(client->socket, (void *)tmp->username, MAX_LENGTH, 0);
+		if(ret==-1 || ret<MAX_LENGTH) {
 			printf("cmd_who error: errore in invio nome client!\n");
 			exit(1);
 		} 
@@ -198,13 +190,7 @@ void cmd_connect() {
 	struct client *client2;
 	short	int	port;
 	
-	//ricevo lunghezza username a cui client si vuole connettere
-	ret = recv(client->socket, (void *)&length, sizeof(int), 0);
-	if(ret==-1) {
-		printf("cmd_connect error: errore in ricezione lunghezza username\n");
-		exit(1);
-	}
-	
+	//TODO ricevere first message
 	//ricevo username a cui client si vuole connettere
 	ret = recv(client->socket, (void *)usr, length, 0);
 	if(ret==-1) {
@@ -213,7 +199,9 @@ void cmd_connect() {
 	}
 	usr[length] = '\0';
 	
-	//informo client che rispondo alla sua connect
+	//scomporre messaggio ricevuto in source, dest, nonce
+	
+	//informo source che rispondo alla sua connect
 	cmd = 'c'; //connect
 	ret = send(client->socket, (void *)&cmd, sizeof(char), 0);
 	if(ret==-1) {
@@ -221,7 +209,7 @@ void cmd_connect() {
 		exit(1);
 	}
 	
-	if(!exist(usr)) {	//username non esiste tra i client connessi
+	if(!exist(usr)) {	//dest non esiste tra i client connessi
 		cmd = 'i';
 		ret = send(client->socket, (void *)&cmd, sizeof(char), 0);
 		if(ret==-1) {
@@ -239,16 +227,9 @@ void cmd_connect() {
 	if(ret==-1) {
 		printf("cmd_connect error: errore in invio richiesta di gioco a client2\n");
 		exit(1);
-	}
-	//invio lunghezza username del client richiedente
-	length = strlen(client->username);
-	ret = send(client2->socket, (void *)&length, sizeof(int), 0);
-	if(ret==-1) {
-		printf("cmd_connect error: errore in invio lunghezza username client a client2\n");
-		exit(1);
-	}
+
 	//invio username di client
-	ret = send(client2->socket, (void *)client->username, length, 0);
+	ret = send(client2->socket, (void *)client->username, MAX_LENGTH, 0);
 	if(ret==-1) {
 		printf("cmd_connect error: errore in invio username client a client2\n");
 		exit(1);
@@ -286,6 +267,15 @@ void cmd_connect() {
                     break;
 		}
 		case 'a': {	//client2 ha accettato
+					
+					//TODO ricevi e scomponi messaggio con nonce 
+		
+					//TODO genera chiave di sessione AB
+					
+					//TODO invia chiave ad A (crittata con Ka) invia anche porta e IP di B
+					
+					//TODO invia chiave a B (crittata con Kb) (invia porta e IP di A?)
+		
                     //invio che client2 ha accettato a client
                     ret = send(client->socket, (void *)&cmd, sizeof(char), 0);
                     if(ret==-1) {
@@ -420,42 +410,13 @@ int add_client(int sd) {
 	new_client->status  = 0;
 	new_client->enemy   = NULL;
 	
-	//receive: username length
-	ret = recv(sd, (void *)&length, sizeof(length), 0);
-	if(ret==-1) {
-		printf("add_client error: error in receiving username length\n");
-		exit(1);
-	}
-	
 	//receive: username
-	ret = recv(sd, (void *)new_client->username, length, 0);
+	ret = recv(sd, (void *)new_client->username, MAX_LENGTH, 0);
 	if(ret==-1) {
 		printf("add_client error: error in receiving username\n");
 		exit(1);
 	}
-	new_client->username[length] = '\0';
-	
-	//receive: password length
-	ret = recv(sd, (void *)&length, sizeof(length), 0);
-	if(ret==-1) {
-		printf("add_client error: error in receiving password length\n");
-		exit(1);
-	}
-	
-	//receive: password (to be decrypted)
-	ret = recv(sd, (void *)new_client->password, length, 0);
-	if(ret==-1) {
-		printf("add_client error: error in receiving password\n");
-		exit(1);
-	}
-	new_client->password[length] = '\0';
-	
-	//check if username & password are correct
-	if(!credentials_ok(new_client->username, new_client->password)) {
-		printf("add_client error: login failed!\n");
-		//instead of only return, maybe notify client (no disconnection, just need to reinsert data)
-		return 0;
-	}
+	new_client->username[MAX_LENGTH] = '\0';
 	
 	//receive: UDP port
 	ret = recv(sd, (void *)&new_client->UDP_port, sizeof(int), 0);
