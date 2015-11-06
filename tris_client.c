@@ -162,7 +162,7 @@ unsigned char* first_msg(int msg_size, unsigned char* my_ID, unsigned char* othe
 }
 //------------Sara-----------------
 
-void send_first_msg() {
+void send_first_msg(unsigned char* source, unsigned char* dest) {
 	
 	//ID should have a defined lenght for simplicity
 	int secret_size;
@@ -181,7 +181,7 @@ void send_first_msg() {
 	unsigned char* msg1 = calloc(msg1_size, sizeof(unsigned char));
 	unsigned char *my_nonce = calloc (NONCE_SIZE, sizeof(unsigned char));
 	my_nonce = generate_nonce();
-	msg1 = first_msg(msg1_size, my_username, client_username, my_nonce);
+	msg1 = first_msg(msg1_size, source, dest, my_nonce);
 	
 	//send first msg to server
 	ret = send(server_sd, (void *)msg1, msg1_size, 0);
@@ -246,8 +246,8 @@ void cmd_connect() {
 		exit(1);
 	}
 	
-	//TODO invia il first message
-	send_first_msg();
+	//TODO invia il first message (A->S : A, B, Na)
+	send_first_msg(my_username,client_username);
 	
 	
 	//la ricezione della risposta del server e' in get_from_server()
@@ -677,7 +677,8 @@ void manage_request() {
 			printf("manage_request error: errore in invio richiesta accettata al server!\n");
 			exit(1);
 		}
-		//TODO send messaggio in cui accetto con nonce
+		//TODO send messaggio in cui accetto con nonce (B->S : A, B, Nb)
+		send_first_msg(client_username, my_username);
 		reset();
 	}
 	else {	//richiesta rifiutata

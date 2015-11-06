@@ -194,8 +194,7 @@ void cmd_connect() {
 	unsigned char msg1[MAX_LENGTH*2+NONCE_SIZE];
 	unsigned char nonce[NONCE_SIZE];
 	
-	//TODO ricevere first message
-	//ricevo username a cui client si vuole connettere
+	//receive first message from A (A->S : A, B, Na)
 	ret = recv(client->socket, (void *)msg1, (MAX_LENGTH*2+NONCE_SIZE), 0);
 	if(ret==-1) {
 		printf("cmd_connect error: errore in ricezione username\n");
@@ -205,12 +204,16 @@ void cmd_connect() {
 	//retrieve B and nonce A from msg1
 	strncpy(usr, msg1+MAX_LENGTH, MAX_LENGTH);
 	strncpy(nonce, msg1+MAX_LENGTH*2, NONCE_SIZE);
+	//TODO check nonce freshness
 	//debug
 	printf("usr: %s\n", usr);
 	printf("nonce: %s\n", nonce);
 	
-	
-	//TODO scomporre messaggio ricevuto in source, dest, nonce
+	//SaRa - tmp
+	printf("msg1 %s\n",msg1);
+	if (isFreshNokey(msg1,nonce)==1) printf("it's fresh!\n");
+	else  printf("it's not fresh!\n");
+	//
 	
 	//informo source che rispondo alla sua connect
 	cmd = 'c'; //connect
@@ -240,7 +243,7 @@ void cmd_connect() {
 		exit(1);
 	}
 	
-	//invio username di client
+	//invio username di client (S->B : A)
 	ret = send(client2->socket, (void *)client->username, MAX_LENGTH, 0);
 	if(ret==-1) {
 		printf("cmd_connect error: errore in invio username client a client2\n");
@@ -280,18 +283,23 @@ void cmd_connect() {
 		}
 		case 'a': {	//client2 ha accettato
 					
-					//TODO ricevi e scomponi messaggio con nonce
-					/*ret = recv(client->socket, (void *)msg, (MAX_LENGTH*2+NONCE_SIZE), 0);
+					ret = recv(client2->socket,(void *)msg1, (MAX_LENGTH*2+NONCE_SIZE), 0);
 					if(ret==-1) {
-						printf("cmd_connect error: errore in ricezione username\n");
+						printf("cmd_connect error: errore in ricezione risposta client2\n");
 						exit(1);
 					}
-					
-					*/
+					//retrieve nonce B from msg1
+					strncpy(nonce, msg1+MAX_LENGTH*2, NONCE_SIZE);
+					//TODO check nonce freshness
+					//debug
+					printf("usr: %s\n", usr);
+					printf("nonce: %s\n", nonce);
 						
-					//TODO genera chiave di sessione AB
+					//Generate session key Kab
+					unsigned char* session_key=generate_session_key(128); //128 tmp per debug, key_size ora inizializzata su enc_init
 					
-					//TODO invia chiave ad A (crittata con Ka) invia anche porta e IP di B
+					//TODO invia chiave ad A (crittata con Ka) invia anche porta e IP di B e nonce
+					//notes: ricorda lunghezza che deve includere ip e porta, A deve controllare nonce
 					
 					//TODO invia chiave a B (crittata con Kb) (invia porta e IP di A?)
 		

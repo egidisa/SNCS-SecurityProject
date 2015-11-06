@@ -51,12 +51,23 @@ int enc_initialization(int *secret_size,int *key_size, int *block_size) {
 
 //Generates a char nonce
 unsigned char* generate_nonce(){
+	//the entropy is the malloc, since it leave the memory uninitialized
 	unsigned char* nonce = (unsigned char*)malloc(NONCE_SIZE*sizeof(unsigned char));
 	RAND_seed(nonce, NONCE_SIZE);
 	RAND_bytes(nonce,NONCE_SIZE);
 	return nonce;
 	}
 
+//Generates the session key
+unsigned char* generate_session_key(int session_key_size){
+	//the entropy is the malloc, since it leave the memory uninitialized
+	unsigned char* session_key=(unsigned char*)malloc(session_key_size*sizeof(unsigned char));
+	RAND_seed(session_key,session_key_size);
+	RAND_bytes(session_key,session_key_size);
+	return session_key;
+}
+	
+	
 //Checks the freshness of the nonce
 int isFresh(unsigned char* msg, int key_size, unsigned char* my_nonce){
 	int lenght = key_size+NONCE_SIZE;
@@ -64,6 +75,18 @@ int isFresh(unsigned char* msg, int key_size, unsigned char* my_nonce){
 	int i = 0;
 	for (i=key_size; i<lenght;i++){
 		if (msg[i] == my_nonce[i-key_size]) tmp++;
+	}
+	if (tmp == NONCE_SIZE) return 1; 	//nonce is fresh
+	else return 0; 						//nonce is not fresh
+}
+
+//Checks the freshness of the nonce
+int isFreshNokey(unsigned char* msg, unsigned char* my_nonce){
+	int lenght = NONCE_SIZE;
+	int tmp = 0;
+	int i = 0;
+	for (i=0; i<lenght;i++){
+		if (msg[i] == my_nonce[i]) tmp++;
 	}
 	if (tmp == NONCE_SIZE) return 1; 	//nonce is fresh
 	else return 0; 						//nonce is not fresh
