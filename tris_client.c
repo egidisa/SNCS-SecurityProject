@@ -16,89 +16,77 @@
 
 //===== COSTANTS ==================
 
-#define MAX_DIM_CMD     12	//max dimension commands
-#define N_CMD	        7	//available commands
-#define MAX_LENGTH 	    10	//max length of username/password
+#define MAX_DIM_CMD	12	//max dimension for commands
+#define N_CMD	      7		//number of available commands
+#define MAX_LENGTH 	10	//max length for the username
 #define HELP_MENU "Sono disponibili i seguenti comandi:\n * !help --> mostra l'elenco dei comandi disponibili\n * !who --> mostra l'elenco dei client connessi al server\n * !connect nome_client --> avvia una partita con l'utente nome_client\n * !disconnect --> disconnette il client dall'attuale partita intrapresa con un altro peer\n * !quit --> disconnette il client dal server\n * !show_map --> mostra la mappa di gioco\n * !hit num_cell --> marca la casella num_cell (valido solo quando e' il proprio turno)\n"
 //TODO: translate help
+
+//NOTE: client indicates the other user whom I connect to
 //=================================
 
-
 //===== VARIABLES =================
-//socket
+//socket descriptors
 int server_sd,
     client_sd;
 		
 //config variables
 struct sockaddr_in  server_addr,
-                    client_addr,
-                    my_addr;
+                    my_addr,
+                    client_addr;
 		
-//client data
-char 		    my_username[MAX_LENGTH];
-char		my_password[MAX_LENGTH];
+//my data
+unsigned char		my_username[MAX_LENGTH];
 unsigned long   my_IP;
-unsigned short	my_UDP_port;	//da 0 a 65535
-char		    my_mark;
-char 			tmp_pswd[N_CMD];
+unsigned short	my_UDP_port;	//from 0 to 65535
+//DEchar		    my_mark;
+//DEchar 			tmp_pswd[N_CMD];
 
-//other client data
-char		    client_username[MAX_LENGTH];
-unsigned long	client_IP;
-unsigned short	client_UDP_port;	//da 0 a 65535
-char		    client_mark;
+//other's data
+unsigned char		client_username[MAX_LENGTH];
+unsigned long		client_IP;
+unsigned short	client_UDP_port;	//from 0 to 65535
+//DEchar		    client_mark;
 
 int	my_turn = 1;
 
+//TODO modify commands
 char commands[N_CMD][MAX_DIM_CMD] = {
-	"!help",
-	"!who",
-	"!quit",
-	"!connect",
-	"!disconnect",
+	"!help",			//prints the menu
+	"!who",				//prints list of connected users
+	"!quit",			//disconnects from the server
+	"!connect",		//starts protocol (ask to connect to another user)
+	"!disconnect",//disconnect from the connected user
 	"!show_map", 	//not used, could be used to show history of conversation instead
-	"!hit"			//deprecated
+	"!hit"				//could be used to exchange msgs between users
 };
 
-char	game_grid[9];	//deprecated
-int	    empty_cells;	//deprecated
+//DEchar	game_grid[9];	//deprecated
+//DEint	    empty_cells;	//deprecated
 
-char 	shell;          // '>' = command shell, '#' = conversation shell
-int	    show_shell;	    //0 = don't print shell character, 1 = print
+char 	shell;       	// '>' = command shell, '#' = conversation shell
+int		show_shell;		//0 = don't print shell character, 1 = print
 
 //set per select
-fd_set	master,	        //master file descriptor list
-        tmp_fd;         //temp file descriptor list for select
-int	    max_fd;	
+fd_set	master,			//master file descriptor list
+        tmp_fd;     //temporary file descriptor list (for select)
+int	    max_fd;					
 
 //timer
-struct timeval timer;
+//DEstruct timeval timer;
 
 //=================================
 
-//===== FUNZIONI APPOGGIO =========
+//===== UTILITY FUNCTIONS =========
 
-//----- valid_port ---------
+//------ valid_port ------
 int valid_port(int port) {
 	if(port<1024 || port>=65536)
 		return 0;
 	return 1;
 }
 
-//------ check_win ----- //ritorna simbolo vincitore (or '-'), 'N' altrimenti //deprecated
-char check_win() {
-	if(game_grid[6]==game_grid[7] && game_grid[7]==game_grid[8]) return game_grid[6]; //tris prima riga
-	if(game_grid[3]==game_grid[4] && game_grid[4]==game_grid[5]) return game_grid[3]; //tris seconda riga
-	if(game_grid[0]==game_grid[1] && game_grid[1]==game_grid[2]) return game_grid[0]; //tris terza riga
-	if(game_grid[0]==game_grid[3] && game_grid[3]==game_grid[6]) return game_grid[0]; //tris prima colonna
-	if(game_grid[1]==game_grid[4] && game_grid[4]==game_grid[7]) return game_grid[1]; //tris seconda colonna
-	if(game_grid[2]==game_grid[5] && game_grid[5]==game_grid[8]) return game_grid[2]; //tris terza colonna
-	if(game_grid[0]==game_grid[4] && game_grid[4]==game_grid[8]) return game_grid[0]; //tris diagonale
-	if(game_grid[2]==game_grid[4] && game_grid[4]==game_grid[6]) return game_grid[2]; //tris diagonale
-	return 'N';
-}
-
-//------ reset ----- //inizializza i parametri per l'inizio di una nuova partita
+//DE------ reset ------ initializes parameters
 void reset() {
 	int i;
 	for(i=0; i<9; i++)
@@ -115,7 +103,7 @@ void reset() {
 	return;
 }
 
-//------ resolve_command ----- restituisce l'indice del comando relativo a cmd nell'array "commands"
+//------ resolve_command ----- returns index in "commands" array associated to inserted command
 int resolve_command(char *cmd) {
 	int i;
 	for(i=0; i<N_CMD; i++) {
@@ -125,16 +113,7 @@ int resolve_command(char *cmd) {
 	return -1;
 }
 
-//------ print_line -----
-void print_line(int i) {
-	int j = i+3;
-	do {
-		printf(" %c ", game_grid[i]);
-		i++;
-	} while (i<j);
-	return;
-}
-
+//------ add_padding ------ adds padding '$' to inserted username if < MAX_LENGTH
 void add_padding(unsigned char* text) {
 	int i;
 	for(i=strlen(text); i<MAX_LENGTH; i++) {
@@ -142,6 +121,7 @@ void add_padding(unsigned char* text) {
 	}
 }
 
+//------ remove_padding ------ removes padding (in order to print out the username correctly)
 void remove_padding(unsigned char* text) {
 	int i;
 	for(i=0; i<MAX_LENGTH; i++) {
@@ -152,7 +132,7 @@ void remove_padding(unsigned char* text) {
 	}
 }
 
-//------------Sara-----------------
+//------ first_msg ------ prepares and returns message with the syntax: (userID, userID, nonce)
 unsigned char* first_msg(int msg_size, unsigned char* my_ID, unsigned char* other_ID, unsigned char* nonce){
 	unsigned char* msg = calloc (msg_size, sizeof(unsigned char));
 	memcpy(msg, my_ID, MAX_LENGTH);
@@ -160,135 +140,125 @@ unsigned char* first_msg(int msg_size, unsigned char* my_ID, unsigned char* othe
 	memcpy(msg+MAX_LENGTH*2, nonce, NONCE_SIZE);
 	return msg;	
 }
-//------------Sara-----------------
 
 void send_first_msg(unsigned char* source, unsigned char* dest) {
-	
-	//ID should have a defined lenght for simplicity
 	int secret_size;
 	int key_size;
 	int block_size;
-	int ret;
+	int ret;	
+	int msg_size = MAX_LENGTH*2+NONCE_SIZE; 	//A,B,Na
+	unsigned char* secret 	= calloc(secret_size, sizeof(unsigned char));
+	unsigned char* msg 			= calloc(msg_size, sizeof(unsigned char));
+	//TODO make it global? 
+	unsigned char *my_nonce = calloc(NONCE_SIZE, sizeof(unsigned char));
 	
 	enc_initialization(&secret_size, &key_size, &block_size);
 	
-	unsigned char* my_ID = "Sara"; 			//TMP - to be changed with the actual login name
-	unsigned char* other_ID = "Alex"; 		//TMP - to be changed with the other client name
-	unsigned char* secret = calloc(secret_size, sizeof(unsigned char));
-	secret = retrieve_key(4); 				//to be changed, now it returns "fuckdis"
+	//TODO change, now it returns "fuckdis"
+	secret = retrieve_key(4); 				
 	
-	int msg1_size = MAX_LENGTH*2+NONCE_SIZE; 	//A,B,Na
-	unsigned char* msg1 = calloc(msg1_size, sizeof(unsigned char));
-	unsigned char *my_nonce = calloc (NONCE_SIZE, sizeof(unsigned char));
-	my_nonce = generate_nonce();
-	msg1 = first_msg(msg1_size, source, dest, my_nonce);
+    my_nonce = generate_nonce();
+    msg1 = first_msg(msg1_size, source, dest, my_nonce);
 	
 	//send first msg to server
-	ret = send(server_sd, (void *)msg1, msg1_size, 0);
+	ret = send(server_sd, (void *)msg, msg_size, 0);
 	if (ret==-1 || ret<MAX_LENGTH)
 	{
-		printf("cmd_connect error: errore nell'invio di client_username al server\n");
+		printf("cmd_connect error: error while sending first message to the server\n");
 		exit(1);
 	}
-	
-	//at this point the first message is ready to be sent out
-	//TODO - concatenate 2nd message contents and use cipher_text = Encrypt_msg (..) to encrypt
-	
 }
 
 //=================================
 
-//===== FUNZIONI ==================
+//===== FUNCTIONS =================
 
-//------ cmd_who ----- la lista dei client e' nel server, qui mando la richiesta
+//------ cmd_who ----- connected users list is on the server, here we send the request
 void cmd_who() {
 	int ret;
-	char cmd = 'w';	//da mandare al server
+	char cmd = 'w';	//to be sent to the server
 	
 	ret = send(server_sd, (void *)&cmd, sizeof(char), 0);
 	if(ret==-1) {
-		printf("cmd_who error: errore nella send\n");
+		printf("cmd_who error: error while sending command\n");
 		exit(1);
 	}
-	//receive fatta in get_from_server()
+	//receive is in get_from_server()
 	return;
 }
 
-//------ cmd_connect -----
+//------ cmd_connect ------ send request to connect
 void cmd_connect() {
 	int		ret,
             length;
 	char 	cmd = 'c';
 	
-	//check if the username is the same as the client
-	if( strcmp (my_username, client_username)==0) { //giocare contro me stesso
+	//check if the inserted username is the same as the active client
+	if( strcmp (my_username, client_username)==0) { //connecting to myself
 		printf("You can't chat with yourself!\nWell actually you can but it's kind of sad isn't it?");
 		return;
 	}
 	
-	//controllo se sono gia' occupato in altre attivita'
+	//check if I'm already connected to someone else
 	if(shell=='#') {
 		cmd = 'b';
 		ret = send(server_sd, (void *)&cmd, sizeof(cmd), 0);
 		if (ret==-1)
 		{
-			printf("cmd_connect error: errore nell'invio del comando occupato al server\n");
+			printf("cmd_connect error: error while sending busy command to server\n");
 			exit(1);
 		}
 		return;
 	}
 	
-	//mando al server il comando che individua la connect
+	//send command identifying "connect" to the server
 	ret = send(server_sd, (void *)&cmd, sizeof(cmd), 0);
 	if (ret==-1)
 	{
-		printf("cmd_connect error: errore nell'invio del comando al server\n");
+		printf("cmd_connect error: error while sending command to the server\n");
 		exit(1);
 	}
 	
 	//TODO invia il first message (A->S : A, B, Na)
 	send_first_msg(my_username,client_username);
-	
-	
-	//la ricezione della risposta del server e' in get_from_server()
+	//server reply is in get_from_server()
 	return;
 }
 
-//------ cmd_disconnect ----- end=1 indica che la partita e' finita, end=0 indica che il giocatore ha abbandonato, 
-                            //end=2 non serve notificare al server perche' l'ha gia' fatto l'avversario
+//------ cmd_disconnect ------ end=1 game is over (still useful?), end=0 I disconnected, end=2 no need to notify disconnection to the server, already done by other client
 void cmd_disconnect(int end) {
 	int ret;
-	char cmd = 'd';	//da mandare al server e al client
+	char cmd = 'd';	//to be sent to both server and client
 	
-	if(end==0) {		//abbandono, devo informare l'avversario
+	if(end==0) {		//I quit, need to inform client
 		ret = sendto(client_sd, (void *)&cmd, sizeof(char), 0, (struct sockaddr *)&client_addr, (socklen_t)sizeof(client_addr)); //informo l'avversario
 		if(ret==-1) {
-			printf("cmd_disconnect error: errore nel notificare disconnessione all'avversario!\n");
+			printf("cmd_disconnect error: error while notifying disconnection do client\n");
 			exit(1);
 		}
-		printf("Disconnessione avvenuta con successo: TI SEI ARRESO\n");
+		printf("You disconnected succesfully from %s!\n", client_username);
 	}
 	
-	if(end==1) //partita finita
-		printf("Disconnesso da %s...\n", client_username);
+	if(end==1) //game is over
+		printf("Disconnecting from %s...\n", client_username);
 	
 	if(end!=2) {
-		ret = send(server_sd, (void *)&cmd, sizeof(char), 0); //informo il server
+		ret = send(server_sd, (void *)&cmd, sizeof(char), 0); //notify server
 		if(ret==-1) {
-			printf("cmd_disconnect error: errore nella send al server\n");
+			printf("cmd_disconnect error: error while notifying server\n");
 			exit(1);
 		}
 	}
 	
 	shell = '>';
 	
-	//reset parametri avversario
+	//reset client parameters
 	memset(&client_addr, 0, sizeof(client_addr));
 	
 	return;
 }
 
-//------ cmd_quit -----
+//------ cmd_quit ------ 
 void cmd_quit() {
 	int 	ret;
 	char	cmd;
@@ -297,29 +267,19 @@ void cmd_quit() {
 	
 	ret = send(server_sd, (void *)&cmd, sizeof(char), 0);
 	if(ret==-1) {
-		printf("cmd_quit error: errore nella send\n");
+		printf("cmd_quit error: error while sending\n");
 		exit(1);
 	}
-	if(shell=='#') //sto giocando
+	if(shell=='#') //still connected
 		cmd_disconnect(0);
 		
 	close(client_sd);
 	close(server_sd);
-	printf("Client disconnesso correttamente\n");
+	printf("Disconnection from server successfull!\n");
 	exit(0);
 }
 
-//------ cmd_show_map ----- se cella vuota mette '-'
-void cmd_show_map() {
-	print_line(6);
-	printf("\n");
-	print_line(3);
-	printf("\n");
-	print_line(0);
-	printf("\n");
-	return;
-}
-
+//TODO to be redefined, maybe send msgs
 //------ cmd_hit -----
 void cmd_hit(int cell) {
 	int		ret;
@@ -375,6 +335,7 @@ void cmd_hit(int cell) {
 	return;
 }
 
+//TODO to be redefined, maybe receive msgs
 //------ cmd_hit_received ----
 void cmd_hit_received(int cell) {
 	game_grid[cell] = client_mark;
@@ -396,13 +357,13 @@ void cmd_hit_received(int cell) {
 	return;
 }
 
-//------ get_input -----
+//------ get_input ----- discriminates the command inserted by the user (keyboard)
 void get_input() {
 	char cmd[MAX_DIM_CMD];
 	int cell;
 	
 	scanf("%s", cmd);
-	fflush(stdin);		//per eliminare dal buffer eventuali altri caratteri
+	fflush(stdin);		//to empty buffer from eventual remaining characters
 	switch(resolve_command(cmd)) {
 		case 0:	{ //help
                     printf("%s", HELP_MENU);
@@ -416,29 +377,27 @@ void get_input() {
                     cmd_quit();
                     break;
 		}
-		case 3:	{ //connect nome_utente
+		case 3:	{ //connect username
                     if(shell=='#')
-                        printf("stai gia' giocando!\n");
+                        printf("You are already connected!\n");
                     else {
                         scanf("%s", client_username);
-						add_padding(client_username);
-                        cmd_connect(); //controlli effettuati in cmd_connect()
+												add_padding(client_username);
+												//other checking done in cmd_connect()..
+                        cmd_connect();
                     }
                     break;
 		}
 		case 4:	{ //disconnect
-                    //controllo se sono in una partita
+                    //check if I'm truly connected
                     if(shell=='#')
                         cmd_disconnect(0);
                     else
-                        printf("non sei connesso a nessun giocatore!!\n");
+                        printf("you're not connected to anyone!\n");
                     break;
 		}
 		case 5:	{ //show_map
-                    if(shell=='#')
-                        cmd_show_map();
-                    else
-                        printf("non stai giocando con nessuno!\n");
+										//nothing to be done yet
                     break;
 		}
 		case 6:	{ //hit num_cella
@@ -451,12 +410,12 @@ void get_input() {
                     cmd_hit(cell-1);
                     break;
 		}
-		default: printf("comando inesistente! digitare \"!help\" per la lista dei comandi disponibili\n");
+		default: printf("non valid command! digit \"!help\" to check the commands list.\n");
 	}
 	return;
 }
 
-//------ connect_to_server -----
+//------ connect_to_server -----	connect to the specified server
 void connect_to_server(char *addr, int port) {
 	int ret;
 
@@ -465,24 +424,24 @@ void connect_to_server(char *addr, int port) {
 	//check address
 	ret = inet_pton(AF_INET, addr, &server_addr.sin_addr.s_addr);
 	if(ret==0) {
-		printf("address not valid!\n");
+		printf("connect_to_server error: address not valid!\n");
 		exit(1);
 	}
 	//check port
 	if(!valid_port(port)) {
-		printf("port not valid! (must be in [1025, 65535])\n");
+		printf("connect_to_server error: port not valid! (must be in [1025, 65535])\n");
 		exit(1);
 	}	
 	server_addr.sin_port = htons(port);
 	server_sd = socket(AF_INET, SOCK_STREAM, 0);
 	if(server_sd==-1) {
-		printf("error in socket creation\n");
+		printf("connect_to_server error: error while creating socket\n");
 		exit(1);
 	}
 	server_addr.sin_family = AF_INET;
 	ret = connect(server_sd, (struct sockaddr *)&server_addr, sizeof(server_addr));
 	if(ret==-1) {
-		printf("error in connect\n");
+		printf("connect_to_server error: error while connecting\n");
 		exit(1);
 	}
 	return;
@@ -494,27 +453,28 @@ void print_client_list(int tot) {
         ret,
         length,
         status;		//remember 0=free 1=busy
-	char	client_name[MAX_LENGTH],
-				stat[5];
+	unsigned char	client_name[MAX_LENGTH],
+								stat[5];
 	
 	for(i=0; i<tot; i++) {
-		memset(client_name, 0, MAX_LENGTH);	//reset di client_name
+		memset(client_name, 0, MAX_LENGTH);	//reset client_name
 		
 		
-		//ricevo il nome del client
+		//receive client name
 		ret = recv(server_sd, (void *)client_name, MAX_LENGTH, 0);
 		if(ret==-1) {
-			printf("get_from_server error: errore in ricezione nome client dal server!\n");
+			printf("get_from_server error: error while receiving client name from server!\n");
 			exit(1);
 		}
 		client_name[MAX_LENGTH] = '\0';
-		//ricevo lo stato del client
+		//receive client status
 		ret = recv(server_sd, (void *)&status, sizeof(int), 0);
 		if(ret==-1) {
-			printf("get_from_server error: errore in ricezione stato client dal server!\n");
+			printf("get_from_server error: error while receiving client status from server!\n");
 			exit(1);
 		}
 		
+		//prepare text to be shown
 		if(status==0)
 			strncpy(stat, "free", sizeof(stat)-1);
 		else
@@ -531,8 +491,8 @@ void log_in_server() {
 	int 	length,
         ret;
 	char	cmd;
+	char	UDP[7];
 	unsigned short port_tmp;
-	char    UDP[7];
 	
 	memset(UDP, 0, 7);
 		
@@ -571,19 +531,20 @@ void log_in_server() {
 	}
 	if(cmd=='e') {	//username already existent
 		printf("chosen username already existent!\n");
-		exit(2);	//exit instead of repeating login procedure
+		exit(2);	//exit instead of repeating login procedure TODO: add while loop?
 	}
 	/*
 	if(cmd=='@') //connection ok!
 	*/
 	
+	//print list of connected users right after logging in
 	cmd_who();
 	
 	return;
 }
 	
-//------- start_game ------
-void start_game() {
+//------- start_conversation ------ sets up the conversation between the two client
+void start_conversation() {
 	int ret;
 	
 	my_mark = 'X';
@@ -627,155 +588,153 @@ void start_game() {
 	return;
 }
 
-//------- manage_request ------- richiesta di gioco da parte del client
+//------- manage_request ------- connection request received from client
 void manage_request() {
 	int 	ret,
-            length;
+        length;
 	char	cmd,
-            res;
+        res;
 	
 	
 	memset(client_username, 0, MAX_LENGTH);
-	//ricevo il nome del client che mi chiede di giocare
+	//receive client username
 	ret = recv(server_sd, (void *)client_username, MAX_LENGTH, 0);
 	if(ret==-1) {
-		printf("manage_request error: errore in ricezione nome client!\n");
+		printf("manage_request error: error while receiving client username!\n");
 		exit(1);
 	}
 	client_username[MAX_LENGTH] = '\0';
 
-	if(shell=='#') { //occupato
-		//notifico al server che sono gia' impegnato
+	if(shell=='#') { //busy
+		//notify server that I'm already busy
 		cmd = 'b';
 		ret = send(server_sd, (void *)&cmd, sizeof(cmd), 0);
 		if(ret==-1) {
-			printf("manage_request error: errore in invio stato occupato al server!\n");
+			printf("manage_request error: error while sending busy state to server!\n");
 			exit(1);
 		}
 		return;
 	}
 	
-	printf("%s ti ha chiesto di giocare!\n", client_username);
+	printf("%s asked to connect with you!\n", client_username);
 	
 	do {
 		scanf("%c", &res);	//metto questo perche' se no stampa 2 volte "accettare..." perche' legge senza aspettare che digiti la prima volta!
-		printf("accettare la richiesta? (y|n): ");	//PERCHE' LA PRIMA VOLTA LEGGE SENZA ASPETTARE CHE DIGITI?? (risolto con scanf sopra)
+		printf("accept request? (y|n): ");	//PERCHE' LA PRIMA VOLTA LEGGE SENZA ASPETTARE CHE DIGITI?? (risolto con scanf sopra)
 		fflush(stdin);
 		scanf("%c", &res);
 	}while(res!='y' && res!='Y' && res!='n' && res!= 'N');	
 	
 	if(res=='y' || res=='Y') {
-		my_mark = 'O';
-		client_mark = 'X';
-		my_turn = 0;
-		printf("Richiesta di gioco accettata\n");
-		printf("Il tuo simbolo e': %s\n", &my_mark);
-		printf("E' il turno di %s\n", client_username);
+		//my_mark = 'O';
+		//client_mark = 'X';
+		//my_turn = 0;
+		printf("Request accepted!\n");
+		//printf("Il tuo simbolo e': %s\n", &my_mark);
+		//printf("E' il turno di %s\n", client_username);
 		cmd = 'a';
 		ret = send(server_sd, (void *)&cmd, sizeof(cmd), 0);
 		if(ret==-1) {
-			printf("manage_request error: errore in invio richiesta accettata al server!\n");
+			printf("manage_request error: error while sending request accepted to server!\n");
 			exit(1);
 		}
 		//TODO send messaggio in cui accetto con nonce (B->S : A, B, Nb)
 		send_first_msg(client_username, my_username);
 		reset();
 	}
-	else {	//richiesta rifiutata
-		printf("Richiesta di gioco rifiutata\n");
+	else {	//request refused
+		printf("Connection request refused\n");
 		cmd = 'r';
 		ret = send(server_sd, (void *)&cmd, sizeof(cmd), 0);
 		if(ret==-1) {
-			printf("manage_request error: errore in invio richiesta rifiutata al server!\n");
+			printf("manage_request error: error while sending refused request to server!\n");
 			exit(1);
 		}
 	}
 	return;
 }
-//------- get_from_server ------//mi e' arrivata la risposta del server, devo controllare a cosa
+//------- get_from_server ------ server reply received, need to check in response to what
 void get_from_server() {
 	int 	ret,
-            tot_clients;
+        tot_users;
 	char	cmd;
 	
 	ret = recv(server_sd, (void *)&cmd, sizeof(char), 0);
 	if(ret==-1) {
-		printf("get_from_server error: errore in ricezione comando dal server!\n");
+		printf("get_from_server error: error while receiving command from server\n");
 		exit(1);
 	}
 		
-	if(ret==0) { //server si e' disconnesso
-		printf("Il server ha chiuso la connessione!\n");
+	if(ret==0) { //server disconnected
+		printf("Server disconnected!\n");
 		fflush(stdout);
 		exit(2);
 	}
 
 	switch(cmd) {
 		case 'w': {	//who
-                    printf("Client connessi al server:\n");
-                    //ricevo quanti sono i client
-                    ret = recv(server_sd, (void *)&tot_clients, sizeof(int), 0);
-                    if(ret==-1) {
-                        printf("get_from_server error: errore in ricezione numero client dal server!\n");
-                        exit(1);
-                    }
-                    print_client_list(tot_clients);
-                    break;
+        				printf("Online users:\n");
+                //receive number of connected clients
+                ret = recv(server_sd, (void *)&tot_users, sizeof(int), 0);
+                if(ret==-1) {
+                    printf("get_from_server error: error while receiving number of users!\n");
+                    exit(1);
+                }
+                print_client_list(tot_users);
+                break;
 		}
 		
 		case 'c': {	//connect
-                    //ricevo dal server la risposta di enemy
-                    ret = recv(server_sd, (void *)&cmd, sizeof(char), 0);
-                    if(ret==-1) {
-                        printf("get_from_server error: errore in ricezione \"accettato\" dal server!\n");
-                        exit(1);
-                    }
-                    switch(cmd) {
-                        case 'i': {	//client_username non esiste!
-                                    printf("Impossibile connettersi a %s: utente inesistente!\n", client_username);
-                                    break;
-                        }
-                        case 'a': {	//enemy ha accettato
-									//TODO ricevi messaggio crittato
-									//TODO decritta/scomponi messaggio, retrieve Kab
-									//TODO inizializza parametri B (IP e port)
-                                    start_game();
-                                    break;
-                        }
-                        case 'r': {	//enemy ha rifiutato
-                                    printf("Impossibile connettersi a %s: l'utente ha rifiutato la partita!\n", client_username);
-                                    break;
-                        }
-                        case 'b': { //enemy e' occupato
-                                    printf("Impossibile connettersi a %s: l'utente e' gia' occupato!\n", client_username);
-                                    break;
-                        }
-                        default : {	//non dovrebbe succedere
-                                    printf("Risposta dell'utente incomprensibile!\n");
-                                    break;
-                        }
-                    }
-                    break;
+                //receive client's reply from server
+                ret = recv(server_sd, (void *)&cmd, sizeof(char), 0);
+                if(ret==-1) {
+                	printf("get_from_server error: error while receiving \"accepted\" from server!\n");
+                  exit(1);
+                }
+                switch(cmd) {
+                  case 'i': {	//client_username not existent!
+                              printf("Impossible to connect to %s: username not existent!\n", client_username);
+                  						break;
+                  }
+                  case 'a': {	//client accepted request
+															//TODO ricevi messaggio crittato
+															//TODO decritta/scomponi messaggio, retrieve Kab
+															//TODO inizializza parametri B (IP e port)
+                              start_conversation();
+                              break;
+                  }
+                  case 'r': {	//client refused connection
+                              printf("Impossible to connect to %s: user refused!\n", client_username);
+                              break;
+                  }
+                  case 'b': { //client is busy
+                              printf("Impossible to connect to%s: user already busy!\n", client_username);
+                              break;
+                  }
+                  default : {	//should not happen :)
+                              printf("Server reply incomprehensible!\n");
+                              break;
+                  }
+            		}
+                break;
 		}
 		
-		case 'o': {	//richiesta di giocare
-                    manage_request();
-                    break;
+		case 'o': {	//connection request
+                manage_request();
+                break;
 		}
 		
-		default : { //niente
-                    
-                    break;
+		default : { //nothing to do
 		}
 	}
 	return;
 }
 
-//------- get_from_client ------
+//------- get_from_client ------  client sent something
 void get_from_client() {
 	int 	ret,
-            addrlen,
-            cell;
+        addrlen,
+        cell;
 	char	cmd;
 	
 	addrlen = sizeof(client_addr);
@@ -784,32 +743,32 @@ void get_from_client() {
 	
 	ret = recvfrom(client_sd, (void *)&cmd, sizeof(cmd), 0, (struct sockaddr *)&client_addr, (socklen_t *)&addrlen);
 	if(ret==-1) {
-		printf("get_from_client error: errore in ricezione comando dal client!\n");
+		printf("get_from_client error: error while receiving command from client!\n");
 		exit(1);
 	}
 	if(ret==0) {
-		printf("get_from_client error: nessun dato ricevuto dal client!\n");
+		printf("get_from_client error: no data received!\n");
 		return;
 	}
 	
 	switch(cmd) {
 		case 'd' :  {	//disconnect
-                        printf("l'avversario si e' arreso!\nHAI VINTO!!\n");
-                        cmd_disconnect(2);
-                        break;
+                 	printf("%s disconnected!\n", client_username);
+                  cmd_disconnect(2);
+                  break;
 		}
-		case 'h' :  {	//hit
-                        ret = recvfrom(client_sd, (void *)&cell, sizeof(int), 0, (struct sockaddr *)&client_addr, (socklen_t *)&addrlen);
-                        if(ret==-1) {
-                            printf("get_from_client error: errore in ricezione coordinate dal client!\n");
-                            exit(1);
-                        }
-                        cell = ntohl(cell);	//cell e' gia' decrementata di 1!
-                        cmd_hit_received(cell);
-                        break;
+		case 'h' :  {	//hit TODO: redefine
+                 	ret = recvfrom(client_sd, (void *)&cell, sizeof(int), 0, (struct sockaddr *)&client_addr, (socklen_t *)&addrlen);
+                  if(ret==-1) {
+                  	printf("get_from_client error: errore in ricezione coordinate dal client!\n");
+                    exit(1);
+                  }
+                  cell = ntohl(cell);	//cell e' gia' decrementata di 1!
+                  cmd_hit_received(cell);
+                  break;
 		}
 		default	:	{
-                        break;
+                  break;
 		}
 	}
 	return;
@@ -818,17 +777,12 @@ void get_from_client() {
 //=================================
 
 //------- main ------
-int main(int num, char* args[]) {   		//remember: il primo arg e' ./client
-	
-	//Sara
-	
-	//Sara
-	
+int main(int num, char* args[]) {   		//remember: 1st arg is ./client
 	int ret,
-        i;
-	struct timeval *time;
+      i;
+//DE	struct timeval *time;
 
-	//controllo numero parametri
+	//check number of parameters
 	if(num!=3) {
 		printf("Wrong number of parameter!\n");
 		return -1;
@@ -847,7 +801,7 @@ int main(int num, char* args[]) {   		//remember: il primo arg e' ./client
 	//Opens UDP socket
 	client_sd = socket(AF_INET, SOCK_DGRAM, 0);
 	if(client_sd==-1) {
-		printf("errore nella creazione del socket UDP\n");
+		printf("main: error while creating UDP socket\n");
 		exit(1);
 	}
 	
@@ -860,7 +814,7 @@ int main(int num, char* args[]) {   		//remember: il primo arg e' ./client
 	//Client bind
 	ret = bind(client_sd, (struct sockaddr*)&my_addr, sizeof(my_addr));
 	if(ret==-1){
-		printf("errore bind\n");
+		printf("error in bind\n");
 		exit(1);
 	}
 	
@@ -873,28 +827,30 @@ int main(int num, char* args[]) {   		//remember: il primo arg e' ./client
 	
 	//reset();
 	shell = '>';
-	timer.tv_sec = 60;
-	timer.tv_usec = 0;
+	//DEtimer.tv_sec = 60;
+	//DEtimer.tv_usec = 0;
 	show_shell = 1;
 	
 	while(1) {
 		tmp_fd = master;
 		
-		time = &timer;
+		//DEtime = &timer;
 		
-		if(shell=='>')
-			time = NULL;
+		//DEif(shell=='>')
+		//DE	time = NULL;
 		
 		if(show_shell) {
 			printf("%c", shell);
 			fflush(stdout);
 		}
 			
+		//TODO: remove time from select
 		ret = select(max_fd+1, &tmp_fd, NULL, NULL, time); 	//attivare timer
 		if(ret==-1) {
 			printf("Select error\n");
 			exit(1);
 		}
+		/* DE
 		if(ret==0) { 										//timer expired
 			if(my_turn) 
 				printf("il tempo e' scaduto! HAI PERSO!\n");
@@ -903,25 +859,29 @@ int main(int num, char* args[]) {   		//remember: il primo arg e' ./client
 			cmd_disconnect(1);								//fine partita
 			continue;
 		}
+		*/
 		for(i=0; i<=max_fd; i++) {
-			if(FD_ISSET(i, &tmp_fd)) { 						//c'e' descrittore pronto
+			if(FD_ISSET(i, &tmp_fd)) { 	//there is a ready descriptor
 			
-				if(i==0) {									//descrittore pronto e' stdin
-					//leggo comando in input
+				if(i==0) {								//ready descriptor is STDIN
+					//read input (command)
 					get_input();
-					//aggiorno il timer
-					timer.tv_sec = 60;
-					timer.tv_usec = 0;
+					//update timer
+					//DEtimer.tv_sec = 60;
+					//DEtimer.tv_usec = 0;
 				}
 				
-				if(i==server_sd) {							//descrittore pronto e' server
-					get_from_server();						//ricevo dal server
+				if(i==server_sd) {				//ready descriptor is server
+					//receive from server
+					get_from_server();			
 				}
 				
-				if(i==client_sd) {							//descrittore pronto e' client
-					get_from_client();						//ricevo da altro peer
-					timer.tv_sec = 60;						//aggiorno il timer
-					timer.tv_usec = 0;
+				if(i==client_sd) {				//ready descriptor is client
+					//receive from peer
+					get_from_client();			
+					//update timer
+					//DEtimer.tv_sec = 60;
+					//DEtimer.tv_usec = 0;
 				}
 			}
 		}

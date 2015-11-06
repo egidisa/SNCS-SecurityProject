@@ -16,21 +16,19 @@
 
 //===== COSTANTS ==================
 #define MAX_CONNECTION 	10
-#define MAX_LENGTH 			10	//max lunghezza username
-#define SERVER_FILE			"/server_file"	//file containing usr-pwd combinations
+#define MAX_LENGTH 			10	//max length for the username TODO: move to a common file?
 //=================================
 
-//===== VARIABILI =================
+//===== VARIABLES =================
 //client
 struct client {
-	char 	        username[MAX_LENGTH];
-	char					password[MAX_LENGTH];
+	unsigned char username[MAX_LENGTH];
 	short int	    UDP_port;
 	int		        socket;
 	unsigned long	address;
-	int 	        status; // 0=free, 1=busy
-	struct client   *enemy;
-	struct client   *next;
+	int 	        status; 	//0=free, 1=busy
+	struct client *enemy;		//connected user
+	struct client *next;
 };
 
 struct client *users;	//lista dei client connessi
