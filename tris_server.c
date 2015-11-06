@@ -12,6 +12,8 @@
 #include<netinet/in.h>
 #include<errno.h>
 
+#include"crypto_lib.h"
+
 //===== COSTANTS ==================
 #define MAX_CONNECTION 	10
 #define MAX_LENGTH 			10	//max lunghezza username
@@ -189,17 +191,26 @@ void cmd_connect() {
 	char	usr[MAX_LENGTH];
 	struct client *client2;
 	short	int	port;
+	unsigned char msg1[MAX_LENGTH*2+NONCE_SIZE];
+	unsigned char nonce[NONCE_SIZE];
 	
 	//TODO ricevere first message
 	//ricevo username a cui client si vuole connettere
-	ret = recv(client->socket, (void *)usr, length, 0);
+	ret = recv(client->socket, (void *)msg1, (MAX_LENGTH*2+NONCE_SIZE), 0);
 	if(ret==-1) {
 		printf("cmd_connect error: errore in ricezione username\n");
 		exit(1);
 	}
-	usr[length] = '\0';
 	
-	//scomporre messaggio ricevuto in source, dest, nonce
+	//retrieve B and nonce A from msg1
+	strncpy(usr, msg1+MAX_LENGTH, MAX_LENGTH);
+	strncpy(nonce, msg1+MAX_LENGTH*2, NONCE_SIZE);
+	//debug
+	printf("usr: %s\n", usr);
+	printf("nonce: %s\n", nonce);
+	
+	
+	//TODO scomporre messaggio ricevuto in source, dest, nonce
 	
 	//informo source che rispondo alla sua connect
 	cmd = 'c'; //connect
@@ -227,7 +238,8 @@ void cmd_connect() {
 	if(ret==-1) {
 		printf("cmd_connect error: errore in invio richiesta di gioco a client2\n");
 		exit(1);
-
+	}
+	
 	//invio username di client
 	ret = send(client2->socket, (void *)client->username, MAX_LENGTH, 0);
 	if(ret==-1) {
@@ -268,8 +280,15 @@ void cmd_connect() {
 		}
 		case 'a': {	//client2 ha accettato
 					
-					//TODO ricevi e scomponi messaggio con nonce 
-		
+					//TODO ricevi e scomponi messaggio con nonce
+					/*ret = recv(client->socket, (void *)msg, (MAX_LENGTH*2+NONCE_SIZE), 0);
+					if(ret==-1) {
+						printf("cmd_connect error: errore in ricezione username\n");
+						exit(1);
+					}
+					
+					*/
+						
 					//TODO genera chiave di sessione AB
 					
 					//TODO invia chiave ad A (crittata con Ka) invia anche porta e IP di B

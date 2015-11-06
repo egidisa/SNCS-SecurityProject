@@ -134,6 +134,68 @@ void print_line(int i) {
 	} while (i<j);
 	return;
 }
+
+void add_padding(unsigned char* text) {
+	int i;
+	for(i=strlen(text); i<MAX_LENGTH; i++) {
+		text[i] = '$';
+	}
+}
+
+void remove_padding(unsigned char* text) {
+	int i;
+	for(i=0; i<MAX_LENGTH; i++) {
+		if(text[i]=='$') {
+			text[i] = '\0';
+			break;
+		}
+	}
+}
+
+//------------Sara-----------------
+unsigned char* first_msg(int msg_size, unsigned char* my_ID, unsigned char* other_ID, unsigned char* nonce){
+	unsigned char* msg = calloc (msg_size, sizeof(unsigned char));
+	memcpy(msg, my_ID, MAX_LENGTH);
+	memcpy(msg+MAX_LENGTH, other_ID, MAX_LENGTH);
+	memcpy(msg+MAX_LENGTH*2, nonce, NONCE_SIZE);
+	return msg;	
+}
+//------------Sara-----------------
+
+void send_first_msg() {
+	
+	//ID should have a defined lenght for simplicity
+	int secret_size;
+	int key_size;
+	int block_size;
+	int ret;
+	
+	enc_initialization(&secret_size, &key_size, &block_size);
+	
+	unsigned char* my_ID = "Sara"; 			//TMP - to be changed with the actual login name
+	unsigned char* other_ID = "Alex"; 		//TMP - to be changed with the other client name
+	unsigned char* secret = calloc(secret_size, sizeof(unsigned char));
+	secret = retrieve_key(4); 				//to be changed, now it returns "fuckdis"
+	
+	int msg1_size = MAX_LENGTH*2+NONCE_SIZE; 	//A,B,Na
+	unsigned char* msg1 = calloc(msg1_size, sizeof(unsigned char));
+	unsigned char *my_nonce = calloc (NONCE_SIZE, sizeof(unsigned char));
+	my_nonce = generate_nonce();
+	msg1 = first_msg(msg1_size, my_username, client_username, my_nonce);
+	
+	//send first msg to server
+	ret = send(server_sd, (void *)msg1, msg1_size, 0);
+	if (ret==-1 || ret<MAX_LENGTH)
+	{
+		printf("cmd_connect error: errore nell'invio di client_username al server\n");
+		exit(1);
+	}
+	
+	//at this point the first message is ready to be sent out
+	//TODO - concatenate 2nd message contents and use cipher_text = Encrypt_msg (..) to encrypt
+	
+}
+
 //=================================
 
 //===== FUNZIONI ==================
@@ -185,13 +247,8 @@ void cmd_connect() {
 	}
 	
 	//TODO invia il first message
-	//invio al server client_username NON CIFRARE
-	ret = send(server_sd, (void *)client_username, MAX_LENGTH, 0);
-	if (ret==-1 || ret<MAX_LENGTH)
-	{
-		printf("cmd_connect error: errore nell'invio di client_username al server\n");
-		exit(1);
-	}
+	send_first_msg();
+	
 	
 	//la ricezione della risposta del server e' in get_from_server()
 	return;
@@ -429,23 +486,6 @@ void connect_to_server(char *addr, int port) {
 		exit(1);
 	}
 	return;
-}
-
-void add_padding(unsigned char* text) {
-	int i;
-	for(i=strlen(text); i<MAX_LENGTH; i++) {
-		text[i] = '$';
-	}
-}
-
-void remove_padding(unsigned char* text) {
-	int i;
-	for(i=0; i<MAX_LENGTH; i++) {
-		if(text[i]=='$') {
-			text[i] = '\0';
-			break;
-		}
-	}
 }
 
 //------- print_client_list ----
@@ -776,42 +816,10 @@ void get_from_client() {
 
 //=================================
 
-//------------Sara-----------------
-unsigned char* first_msg(int msg_size, unsigned char* my_ID, unsigned char* other_ID, unsigned char* nonce){
-	int id_size = 4; 						//TMP - to be defined then change to ID_SIZE
-	unsigned char* msg = calloc (msg_size, sizeof(unsigned char));
-	memcpy(msg, my_ID, id_size);
-	memcpy(msg+id_size, other_ID, id_size);
-	memcpy(msg+id_size*2, nonce, NONCE_SIZE);
-	return msg;	
-}
-//------------Sara-----------------
-
 //------- main ------
 int main(int num, char* args[]) {   		//remember: il primo arg e' ./client
 	
 	//Sara
-	
-	//ID should have a defined lenght for simplicity
-	int secret_size;
-	int key_size;
-	int block_size;
-	int id_size = 4; 						//to be defined if approved by Alex :3 
-	
-	enc_initialization(&secret_size, &key_size, &block_size);
-	
-	unsigned char* my_ID = "Sara"; 			//TMP - to be changed with the actual login name
-	unsigned char* other_ID = "Alex"; 		//TMP - to be changed with the other client name
-	unsigned char* secret = calloc(secret_size, sizeof(unsigned char));
-	secret = retrieve_key(4); 				//to be changed, now it returns "fuckdis"
-	
-	int msg1_size = id_size*2+NONCE_SIZE; 	//A,B,Na
-	unsigned char* msg1 = calloc(msg1_size, sizeof(unsigned char));
-	unsigned char *my_nonce = calloc (NONCE_SIZE, sizeof(unsigned char));
-	my_nonce = generate_nonce();
-	msg1 = first_msg(msg1_size, my_ID, other_ID, my_nonce);
-	//at this point the first message is ready to be sent out
-	//TODO - concatenate 2nd message contents and use cipher_text = Encrypt_msg (..) to encrypt
 	
 	//Sara
 	
