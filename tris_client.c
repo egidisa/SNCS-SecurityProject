@@ -17,7 +17,7 @@
 //===== COSTANTS ==================
 
 #define MAX_DIM_CMD	12	//max dimension for commands
-#define N_CMD	      7		//number of available commands
+#define N_CMD	    7	//number of available commands
 #define MAX_LENGTH 	10	//max length for the username
 #define HELP_MENU "Sono disponibili i seguenti comandi:\n * !help --> mostra l'elenco dei comandi disponibili\n * !who --> mostra l'elenco dei client connessi al server\n * !connect nome_client --> avvia una partita con l'utente nome_client\n * !disconnect --> disconnette il client dall'attuale partita intrapresa con un altro peer\n * !quit --> disconnette il client dal server\n * !show_map --> mostra la mappa di gioco\n * !hit num_cell --> marca la casella num_cell (valido solo quando e' il proprio turno)\n"
 //TODO: translate help
@@ -36,28 +36,28 @@ struct sockaddr_in  server_addr,
                     client_addr;
 		
 //my data
-unsigned char		my_username[MAX_LENGTH];
+unsigned char	my_username[MAX_LENGTH];
 unsigned long   my_IP;
 unsigned short	my_UDP_port;	//from 0 to 65535
 //DEchar		    my_mark;
 //DEchar 			tmp_pswd[N_CMD];
 
 //other's data
-unsigned char		client_username[MAX_LENGTH];
-unsigned long		client_IP;
+unsigned char	client_username[MAX_LENGTH];
+unsigned long	client_IP;
 unsigned short	client_UDP_port;	//from 0 to 65535
 //DEchar		    client_mark;
 
-int	my_turn = 1;
+//DEint	my_turn = 1;
 
 //TODO modify commands
 char commands[N_CMD][MAX_DIM_CMD] = {
 	"!help",			//prints the menu
 	"!who",				//prints list of connected users
 	"!quit",			//disconnects from the server
-	"!connect",		//starts protocol (ask to connect to another user)
-	"!disconnect",//disconnect from the connected user
-	"!show_map", 	//not used, could be used to show history of conversation instead
+	"!connect",         //starts protocol (ask to connect to another user)
+	"!disconnect",      //disconnect from the connected user
+	"!show_map",        //not used, could be used to show history of conversation instead
 	"!hit"				//could be used to exchange msgs between users
 };
 
@@ -67,9 +67,9 @@ char commands[N_CMD][MAX_DIM_CMD] = {
 char 	shell;       	// '>' = command shell, '#' = conversation shell
 int		show_shell;		//0 = don't print shell character, 1 = print
 
-//set per select
+//set for select
 fd_set	master,			//master file descriptor list
-        tmp_fd;     //temporary file descriptor list (for select)
+        tmp_fd;         //temporary file descriptor list (for select)
 int	    max_fd;					
 
 //timer

@@ -15,64 +15,63 @@
 #include"crypto_lib.h"
 
 //===== COSTANTS ==================
-#define MAX_CONNECTION 	10
-#define MAX_LENGTH 			10	//max length for the username TODO: move to a common file?
+#define MAX_CONNECTION 	10  //max number of user
+#define MAX_LENGTH      10	//max length for the username TODO: move to a common file?
 //=================================
 
 //===== VARIABLES =================
-//client
-struct client {
-	unsigned char username[MAX_LENGTH];
+//one user
+struct user {
+	unsigned char   username[MAX_LENGTH];
 	short int	    UDP_port;
 	int		        socket;
 	unsigned long	address;
 	int 	        status; 	//0=free, 1=busy
-	struct client *enemy;		//connected user
-	struct client *next;
+	struct user   *other;		//user user is connected to
+	struct user   *next;      //next user in the list
 };
 
-struct client *users;	//lista dei client connessi
-int	tot_users = 0;
+struct user   *users;         //list of the connected users
+int             tot_users = 0;
 
-struct client *client; //client che comunica con il server
+struct user   *client;        //user that is communicating with the server
 
-//TODO posso metterle nel main? controllare
-//configurazione
-struct sockaddr_in 	server_addr,
-                    client_addr;
+//TODO make local (?)
+//config
+struct sockaddr_in 	server_addr,    //only used in main
+                    user_addr;    //only used in main and add_user
+int	listener;                       //listening socket descriptor (only in main)
 
-int	listener; //descrittore del socket in ascolto
-
-//set per select			
-fd_set 	master,	//master file descriptor list
-        tmp_fd; //temp file descriptor list for select
+//set for select
+fd_set 	master,     //master file descriptor list
+        tmp_fd;     //temporary file descriptor list for select
 int		max_fd;
 //=================================
 
-//===== FUNZIONI APPOGGIO =========
+//===== UTILITY FUNCTIONS =========
 
-//----- valid_port ---------	
+//----- valid_port ------
 int valid_port(int port) {
 	if(port<1024 || port>=65536)
 		return 0;
 	return 1;
 }
 
-//----- add_to_list --------
-void add_to_list(struct client *elem) {
+//----- add_to_list ------    adds new user (elem) to the users list
+void add_to_list(struct user *elem) {
 	tot_users++;
 	elem->next = users;
 	users = elem;
 }
 
-//----- remove_from_list --------
-void remove_from_list(struct client *elem) {
-	struct client *tmp = users;
+//----- remove_from_list ------ removes specified user (elem) from the users list
+void remove_from_list(struct user *elem) {
+	struct user *tmp = users;
 	
-	if(!tmp) { //lista vuota, potevo fare anche if(tot_users==0)
+	if(!tmp) {      //empty list (tot_users==0)
 		return;
 	}
-	if(tmp==elem) { //elem in testa
+	if(tmp==elem) { //elem is first item
 		users = users->next;
 		free(tmp);
 		tot_users--;
@@ -80,16 +79,16 @@ void remove_from_list(struct client *elem) {
 	}
 	while(tmp->next!=elem && tmp->next!=NULL)
 		tmp = tmp->next;
-	if(tmp->next==NULL) //elem non trovato
+	if(tmp->next==NULL) //elem not found
 		return;
 	tot_users--;
 	tmp->next = tmp->next->next;
 	return;
 }
 
-//----- find_client --------
-struct client* find_client(int sd) {
-	struct client *tmp = users;
+//----- find_user_by_sd --------  returns user with socket = sd, NULL otherwise
+struct user* find_user_by_sd(int sd) {
+	struct user *tmp = users;
 	while(tmp!=NULL) {
 		if(tmp->socket==sd)
 			return tmp;
@@ -98,22 +97,22 @@ struct client* find_client(int sd) {
 	return NULL;
 }
 
-//----- find_by_username ---
-struct client* find_by_username(char *name) {
-	struct client *tmp = users;
+//----- find_user_by_username --- returns user with username = name, NULL otherwise
+struct user* find_user_by_username(char *name) {
+	struct user *tmp = users;
 	while(tmp!=NULL) {
-		if(strcmp(tmp->username, name)==0)	//sono uguali
+		if(strcmp(tmp->username, name)==0)	//equals
 			return tmp;
 		tmp = tmp->next;
 	}
 	return NULL;
 }
 
-//----- exist -------------	
+//----- exist -------------	returns 1 if user with username name is already in the list
 int exist(char *name) {
-	struct client *tmp = users;
+	struct user *tmp = users;
 	while(tmp!=NULL) {
-		if(strcmp(tmp->username, name)==0)	//sono uguali
+		if(strcmp(tmp->username, name)==0)	//equals
 			return 1;
 		tmp = tmp->next;
 	}
@@ -122,44 +121,42 @@ int exist(char *name) {
 
 //=================================
 
-//===== FUNZIONI ==================
+//===== FUNCTIONS =================
 
 //----- cmd_who ---------------
 void cmd_who() {
 	int 	ret,
             length;
 	char	cmd = 'w';
-	struct client *tmp = users;
+	struct user *tmp = users;
 	
-	//invio al client che e' la risposta al comando who		
+	//inform client that I'm replying to a who command
 	ret = send(client->socket, (void *)&cmd, sizeof(cmd), 0);
 	if(ret==-1) {
-		printf("cmd_who error: errore in invio comando\n");
+		printf("cmd_who error: error while sending command\n");
 		exit(1);
 	}
 			
 	ret = send(client->socket, (void *)&tot_users, sizeof(tot_users), 0);
 	if(ret==-1 || ret<sizeof(tot_users)) {
-		printf("cmd_who error: errore in invio tot utenti!\n");
+		printf("cmd_who error: error while sending tot_users\n");
 		exit(1);
 	}
-	while(tmp) {	//finche' ci sono client, ossia tot_user volte
+	while(tmp) {	//until there are users (tot_users times)
 		
-		//mando il nome del client
+		//send user name
 		ret = send(client->socket, (void *)tmp->username, MAX_LENGTH, 0);
 		if(ret==-1 || ret<MAX_LENGTH) {
-			printf("cmd_who error: errore in invio nome client!\n");
+			printf("cmd_who error: error while sending username\n");
 			exit(1);
 		} 
 		
-		//mando lo stato del client
+		//send user status
 		ret = send(client->socket, (void *)&tmp->status, sizeof(int), 0);
 		if(ret==-1 || ret<sizeof(int)) {
-			printf("cmd_who error: errore in invio stato client!\n");
+			printf("cmd_who error: error while sending user status\n");
 			exit(1);
-		} 
-		
-		//potrei implementare di mandare anche con chi e' occupato!
+		}
 		
 		tmp = tmp->next;
 	}
@@ -167,17 +164,17 @@ void cmd_who() {
 
 //----- cmd_disconnect---------
 void cmd_disconnect() {
-	//controllo se client e' effettivamente in una partita, controllo gia' fatto sul client, non dovrebbe servire
+	//check if client is busy done on client side
 	//if(client->status==1) {
-		printf("%s si e' disconnesso da %s\n", client->username, client->enemy->username);
+		printf("%s disconnected from %s\n", client->username, client->other->username);
 		client->status = 0;
-		client->enemy->status = 0;
-		printf("%s e' libero\n", client->username);
-		printf("%s e' libero\n", client->enemy->username);
-		client->enemy=NULL;
+		client->other->status = 0;
+		printf("%s is free\n", client->username);
+		printf("%s is free\n", client->other->username);
+		client->other=NULL;
 	/*}
 	else {
-		printf("%s non e' impegnato in nessuna partita!\n", client->username);
+		printf("%s is not busy!\n", client->username);
 	}*/
 }
 
@@ -185,26 +182,27 @@ void cmd_disconnect() {
 void cmd_connect() {
 	int 	ret,
             length;
-	char	cmd;
-	char	usr[MAX_LENGTH];
-	struct client *client2;
-	short	int	port;
-	unsigned char msg1[MAX_LENGTH*2+NONCE_SIZE];
+    char	cmd;
+    short int port;
+    struct user   *client2;
+	unsigned char othersname[MAX_LENGTH];
+    unsigned char msg1[MAX_LENGTH*2+NONCE_SIZE];
 	unsigned char nonce[NONCE_SIZE];
 	
 	//receive first message from A (A->S : A, B, Na)
 	ret = recv(client->socket, (void *)msg1, (MAX_LENGTH*2+NONCE_SIZE), 0);
 	if(ret==-1) {
-		printf("cmd_connect error: errore in ricezione username\n");
+		printf("cmd_connect error: error while receiving first message\n");
 		exit(1);
 	}
 	
-	//retrieve B and nonce A from msg1
-	strncpy(usr, msg1+MAX_LENGTH, MAX_LENGTH);
+	//retrieve B and Na from msg1
+	strncpy(othersname, msg1+MAX_LENGTH, MAX_LENGTH);
 	strncpy(nonce, msg1+MAX_LENGTH*2, NONCE_SIZE);
 	//TODO check nonce freshness
-	//debug
-	printf("usr: %s\n", usr);
+	
+    //debug
+	printf("othersname: %s\n", othersname);
 	printf("nonce: %s\n", nonce);
 	
 	//SaRa - tmp
@@ -213,77 +211,77 @@ void cmd_connect() {
 	else  printf("it's not fresh!\n");
 	//
 	
-	//informo source che rispondo alla sua connect
+	//inform client (A) that I'm replying to his connect request
 	cmd = 'c'; //connect
 	ret = send(client->socket, (void *)&cmd, sizeof(char), 0);
 	if(ret==-1) {
-		printf("cmd_connect error: errore in invio risposta a connect a client\n");
+		printf("cmd_connect error: error while sending connect reply to client\n");
 		exit(1);
 	}
 	
-	if(!exist(usr)) {	//dest non esiste tra i client connessi
+	if(!exist(othersname)) {    //B is not a connected user
 		cmd = 'i';
 		ret = send(client->socket, (void *)&cmd, sizeof(char), 0);
 		if(ret==-1) {
-			printf("cmd_connect error: errore in invio username non esistente\n");
+			printf("cmd_connect error: error while sending user not existent\n");
 			exit(1);
 		}
 		return;
 	}
 	
-	client2 = find_by_username(usr);
-	//inoltro la richiesta di gioco a client2
-	cmd = 'o';
-	//invio comando che identifica richiesta 
+	client2 = find_user_by_username(othersname);
+	//forward connection request to client2 (B)
+    //send command identifying request
+    cmd = 'o';
 	ret = send(client2->socket, (void *)&cmd, sizeof(char), 0);
 	if(ret==-1) {
-		printf("cmd_connect error: errore in invio richiesta di gioco a client2\n");
+		printf("cmd_connect error: error while sending connection request to client2\n");
 		exit(1);
 	}
 	
-	//invio username di client (S->B : A)
+	//send client (A) username to client2 (B) (S->B : A)
 	ret = send(client2->socket, (void *)client->username, MAX_LENGTH, 0);
 	if(ret==-1) {
-		printf("cmd_connect error: errore in invio username client a client2\n");
+		printf("cmd_connect error: error while sending client username to client2\n");
 		exit(1);
 	}
 	
-	//ricevo risposta da client2
+	//receive client2 reply
 	ret = recv(client2->socket, (void *)&cmd, sizeof(char), 0);
 	if(ret==-1) {
-		printf("cmd_connect error: errore in ricezione risposta client2\n");
+		printf("cmd_connect error: error while receiving client2 reply\n");
 		exit(1);
 	}
 	
 	switch(cmd) {
-		case 'b': {	//client2 e' gia' occupato
-                    //invio che client2 e' occupato a client
+		case 'b': {	//client2 is busy
+                    //send busy reply to client
                     ret = send(client->socket, (void *)&cmd, sizeof(char), 0);
                     if(ret==-1) {
-                        printf("cmd_connect error: errore in invio client2 occupato a client\n");
+                        printf("cmd_connect error: error while sending client2 is busy to client\n");
                         exit(1);
                     }
-                    //client2->status = 1; //occupato
-                    client->status = 0; //libero
-                    client->enemy = NULL;
+                    //client2->status = 1; //busy
+                    client->status = 0; //free
+                    client->other = NULL;
                     break;
 		}
-		case 'r': {	//client2 ha rifiutato
-                    //invio che client2 ha rifiutato a client
+		case 'r': {	//client2 refused
+                    //send refused reply to client
                     ret = send(client->socket, (void *)&cmd, sizeof(char), 0);
                     if(ret==-1) {
-                        printf("cmd_connect error: errore in invio client2 rifiuta a client\n");
+                        printf("cmd_connect error: error while sending client2 refused to client\n");
                         exit(1);
                     }
-                    client->status = 0; //libero
-                    client->enemy = NULL;
+                    client->status = 0; //free
+                    client->other = NULL;
                     break;
 		}
-		case 'a': {	//client2 ha accettato
-					
+		case 'a': {	//client2 accepted
+					//receive client2 (B) reply (B->S : A, B, Nb)
 					ret = recv(client2->socket,(void *)msg1, (MAX_LENGTH*2+NONCE_SIZE), 0);
 					if(ret==-1) {
-						printf("cmd_connect error: errore in ricezione risposta client2\n");
+						printf("cmd_connect error: error while receiving client2 first message\n");
 						exit(1);
 					}
 					//retrieve nonce B from msg1
@@ -301,10 +299,10 @@ void cmd_connect() {
 					
 					//TODO invia chiave a B (crittata con Kb) (invia porta e IP di A?)
 		
-                    //invio che client2 ha accettato a client
+                    //send to client (A) that client2 (B) accepted
                     ret = send(client->socket, (void *)&cmd, sizeof(char), 0);
                     if(ret==-1) {
-                        printf("cmd_connect error: errore in invio client2 accetta a client\n");
+                        printf("cmd_connect error: error while sending client2 accepted to client\n");
                         exit(1);
                     }
                     //invio porta di client2 a client
@@ -321,18 +319,18 @@ void cmd_connect() {
                         exit(1);
                     }
 
-                    client2->status = 1; //occupato
-                    client->status = 1; //occupato
-                    client->enemy = client2;
-                    client2->enemy = client;
-                    printf("%s si e' connesso a %s\n", client->username, client->enemy->username);
+                    client2->status = 1;    //busy
+                    client->status = 1;     //busy
+                    client->other = client2;
+                    client2->other = client;
+                    printf("%s connected to %s\n", client->username, client->other->username);
                     break;
 		}
-		default:  {	//risposta incomprensibile, non dovrebbe mai succedere!
-                    cmd = '$';	//un qualunque carattere non riconosciuto da "get_from_server()" del client
+		default:  {	//incomprehensible reply, should not happen!
+                    cmd = '$';	//whatever char not recognized by "get_from_server()" client side
                     ret = send(client->socket, (void *)&cmd, sizeof(char), 0);
                     if(ret==-1) {
-                        printf("cmd_connect error: errore in invio risposta incomprensibile a client\n");
+                        printf("cmd_connect error: error while sending incomprehensible reply to client\n");
                         exit(1);
                     }
                     break;
@@ -343,37 +341,37 @@ void cmd_connect() {
 //----- quit ------------------
 void cmd_quit(int x) {
 	if(x==0)
-		printf("Il client %s si e' disconnesso dal server\n", client->username);
+		printf("User %s disconnected from the server\n", client->username);
 	else
-		printf("Il client ha usato uno username non valido!\n");
+		printf("User inserted a non valid username!\n");
 	close(client->socket);
 	FD_CLR(client->socket, &master);
 	remove_from_list(client);
 }
 
-//----- manage_client ---------
-void manage_client(int sd) {
+//----- manage_user ---------
+void manage_user(int sd) {
 	int     ret;
 	char    cmd;
 	
-	client = find_client(sd);
+	client = find_user_by_sd(sd);
 	if(!client) {
-		printf("manage_client error: client non trovato!\n");
+		printf("manage_user error: user not found!\n");
 		exit(1);
 	}
 	
 	ret = recv(sd, (void *)&cmd, sizeof(cmd), 0);
 	if(ret==-1) {
-		printf("manage_client error: errore in ricezione comando\n");
+		printf("manage_user error: error while receiving command\n");
 		exit(1);
 	}
-	if(ret==0) { //client disconnected
+	if(ret==0) {    //client disconnected
 		cmd_quit(0);
 		return;
 	}
 	switch(cmd) {
 		case 'w': { //who
-                    cmd_who(); //deve inviare la lista dei client
+                    cmd_who(); //send users list
                     break;
 		}
 		case 'd': {	//disconnect
@@ -391,93 +389,67 @@ void manage_client(int sd) {
 	}
 }
 
-//----- credentials_ok -----
-int credentials_ok(char *username, char *password) {
-	char tmp_usr[MAX_LENGTH],
-			 tmp_pwd[MAX_LENGTH];
-	
-	//open file
-	FILE *fp;
-	fp = fopen(SERVER_FILE, "r");
-	if(fp == NULL) {
-		//error file not found!
-		return -1;
-	}
-	
-	while(fscanf(fp, "%s %s", tmp_usr, tmp_pwd) != EOF) {
-		printf("read values: %s, %s\n", tmp_usr, tmp_pwd);
-		if(strcmp(tmp_usr, username) == 0) 
-			if(strcmp(tmp_pwd, password) == 0) {
-				fclose(fp);
-				return 1;
-			}
-	}
-	
-	//close file
-	fclose(fp);
-	return 0;
-}
-
-//----- add_client ---------
-int add_client(int sd) {
+//----- add_user --------- add a user to the connected users
+//TODO add parameter user_addr in order to make it main-local
+int add_user(int sd) {
 	int 	ret,
             length;
 	char 	cmd;
 			
-	struct client *new_client = malloc(sizeof(struct client));
+	struct user *new_user = malloc(sizeof(struct user));
 	
-	length = sizeof(client_addr);
-	memset(&client_addr, 0, length);
-	getpeername(sd, (struct sockaddr *)&client_addr, (socklen_t *)&length); //find new connected client's address
+	length = sizeof(user_addr);
+	memset(&user_addr, 0, length);
+	getpeername(sd, (struct sockaddr *)&user_addr, (socklen_t *)&length); //find new connected user's address
 	
-	new_client->address = client_addr.sin_addr.s_addr;
-	new_client->socket  = sd;
-	new_client->status  = 0;
-	new_client->enemy   = NULL;
+	new_user->address = user_addr.sin_addr.s_addr;
+	new_user->socket  = sd;
+	new_user->status  = 0;
+	new_user->other   = NULL;
 	
 	//receive: username
-	ret = recv(sd, (void *)new_client->username, MAX_LENGTH, 0);
+	ret = recv(sd, (void *)new_user->username, MAX_LENGTH, 0);
 	if(ret==-1) {
-		printf("add_client error: error in receiving username\n");
+		printf("add_user error: error while receiving username\n");
 		exit(1);
 	}
-	new_client->username[MAX_LENGTH] = '\0';
+	new_user->username[MAX_LENGTH] = '\0';
 	
 	//receive: UDP port
-	ret = recv(sd, (void *)&new_client->UDP_port, sizeof(int), 0);
+	ret = recv(sd, (void *)&new_user->UDP_port, sizeof(int), 0);
 	if(ret==-1) {
-		printf("add_client error: error in receiving UDP port\n");
+		printf("add_user error: error while receiving UDP port\n");
 		exit(1);
 	}
 	
-	//visto che lavoro in locale dovrei controllare che sulla stessa porta non ci siano gia' altri client
+	//while working in local I should check that users don't connect on the same UDP port
 	
-	new_client->UDP_port = ntohs(new_client->UDP_port);
+	new_user->UDP_port = ntohs(new_user->UDP_port);
 	
-	if(exist(new_client->username)) {
+	if(exist(new_user->username)) {
 		cmd = 'e'; //exists
 		ret = send(sd, (void *)&cmd, sizeof(cmd), 0);
 		if(ret==-1) {
-			printf("add_client error: error in reply\n");
+			printf("add_user error: error in reply\n");
 			exit(1);
 		}
 		//close connection with client
-		client = new_client;
+		client = new_user;
 		cmd_quit(1);
-		return; 
+		return 0;
 	}
 	//connection accepted, need to send something? send @ to be sure
 	cmd = '@';
 	ret = send(sd, (void *)&cmd, sizeof(cmd), 0);
 	if(ret==-1) {
-        printf("add_client error: error in sending connection ok\n");
+        printf("add_user error: error in sending connection ok\n");
         exit(1);
     }
 	
-	//add connected client to the list
-	add_to_list(new_client);
-	printf("%s is connected\n", new_client->username);
-	printf("%s is free\n", new_client->username);
+	//add connected user to the list
+	add_to_list(new_user);
+	printf("%s is connected\n", new_user->username);
+	printf("%s is free\n", new_user->username);
 	
 	return 1;
 }
@@ -485,44 +457,44 @@ int add_client(int sd) {
 //=================================
 
 //------- main ------
-int main(int num, char* args[]) {   //remember: il primo arg e' ./server
+int main(int num, char* args[]) {   //remember: 1st arg is ./server
 
 	int ret,
         i,
         addrlen,
-        new_client_sd;	//socket del nuovo client
+        new_user_sd;	//new user socket descriptor
 	
-	//controllo numero parametri
+	//check number of parameters
 	if(num!=3) {
-		printf("numero di parametri errato!\n");
+		printf("number of parameters is wrong!\n");
 		return -1;
 	}
 	
-	//controllo indirizzo
+	//check address
 	ret = inet_pton(AF_INET, args[1], &server_addr.sin_addr.s_addr);
 	if(ret==0) {
-		printf("indirizzo non valido!\n");
+		printf("address not valid!\n");
 		exit(1);
 	}
-	//controllo porta
+	//check port
 	ret = atoi(args[2]);
 	if(!valid_port(ret)) {
-		printf("porta non valida! (must be in [1025, 65535])\n");
+		printf("port not valid! (must be in [1025, 65535])\n");
 		exit(1);
 	}	
 	
-	//configurazione
+	//config
 	memset(&server_addr, 0, sizeof(server_addr));
 	server_addr.sin_family = AF_INET;
 	server_addr.sin_port = htons(ret);
-	inet_pton(AF_INET, args[1], &server_addr.sin_addr.s_addr); //lo rifaccio perche' per ordine ho inizializzato server_addr dopo il controllo IP
+	inet_pton(AF_INET, args[1], &server_addr.sin_addr.s_addr);  //to be redone, server_addr has been initialized after IP checking
 	
-	printf("Indirizzo: %s (Porta: %s)\n", args[1], args[2]);
+	printf("Address: %s (Port: %s)\n", args[1], args[2]);
 	
-	//apro socket TCP
+	//open TCP socket
 	listener = socket(AF_INET, SOCK_STREAM, 0);
 	if(listener==-1) {
-		printf("errore nella creazione del socket (server)\n");
+		printf("error while creating socket\n");
 		exit(1);
 	}
 	
@@ -531,14 +503,14 @@ int main(int num, char* args[]) {   //remember: il primo arg e' ./server
 	//bind
 	ret = bind(listener, (struct sockaddr *)&server_addr, sizeof(server_addr));
 	if(ret==-1){
-		printf("errore bind\n");
+		printf("bind error\n");
 		exit(1);
 	}
 	
 	//listen
 	ret = listen(listener, MAX_CONNECTION);
 	if(ret==-1){
-		printf("errore listen\n");
+		printf("listen error\n");
 		exit(1);
 	}
 	
@@ -546,34 +518,33 @@ int main(int num, char* args[]) {   //remember: il primo arg e' ./server
 	FD_ZERO(&master);
 	FD_ZERO(&tmp_fd);
 	FD_SET(listener, &master);
-	max_fd = listener;					//e' il fd massimo per ora
+	max_fd = listener;					//it is the max_fd at the beginning
 	
 	while(1) {
 		tmp_fd = master;
 		ret = select(max_fd+1, &tmp_fd, NULL, NULL, NULL);
 		if(ret==-1) {
-			printf("errore select\n");
+			printf("select error\n");
 			exit(1);
 		}
 		for(i=0; i<=max_fd; i++) {
-			if(FD_ISSET(i, &tmp_fd)) { 	//descrittore pronto
-				if(i==listener) {					//un nuovo client vuole connettersi
-					addrlen = sizeof(client_addr);
-					new_client_sd = accept(listener, (struct sockaddr *)&client_addr, (socklen_t *)&addrlen);
-					if(new_client_sd==-1) {
-						printf("errore accept\n");
+			if(FD_ISSET(i, &tmp_fd)) {      //there's a ready descriptor
+				if(i==listener) {			//a new user wants to connect
+					addrlen = sizeof(user_addr);
+					new_user_sd = accept(listener, (struct sockaddr *)&user_addr, (socklen_t *)&addrlen);
+					if(new_user_sd==-1) {
+						printf("accept error\n");
 						exit(1);
 					}
-					//check new client credential
-					if(add_client(new_client_sd)) { 			//aggiungo client alla lista
-						printf("Connessione stabilita con il client\n");
-						FD_SET(new_client_sd, &master);	//aggiungo il fd del client ai socket da controllare
-						if(new_client_sd>max_fd)
-							max_fd = new_client_sd;
+					if(add_user(new_user_sd)) { 	//add user to the list
+						printf("Connection established with the new user\n");
+						FD_SET(new_user_sd, &master);   //add new user's sd to the descriptors to be checked
+						if(new_user_sd>max_fd)
+							max_fd = new_user_sd;
 					}
 				}
-				else {		//e' un client gia' connesso
-					manage_client(i);	//gestisce i dati inviati dal client
+				else {		//it is a user that is already connected
+					manage_user(i);	//manage data received from the user
 				}
 			}
 		}
