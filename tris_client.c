@@ -87,21 +87,21 @@ int valid_port(int port) {
 }
 
 //DE------ reset ------ initializes parameters
-void reset() {
-	int i;
-	for(i=0; i<9; i++)
-        game_grid[i] = '-';
-	shell = '#';
-	empty_cells = 9;
-	if(my_mark=='X') 
-		my_turn=1;
-	else 
-		my_turn=0;
-	//aggiorno il timer
-	timer.tv_sec = 60;
-	timer.tv_usec = 0;
-	return;
-}
+// void reset() {
+	// int i;
+	// for(i=0; i<9; i++)
+        // game_grid[i] = '-';
+	// shell = '#';
+	// empty_cells = 9;
+	// if(my_mark=='X') 
+		// my_turn=1;
+	// else 
+		// my_turn=0;
+	// //aggiorno il timer
+	// timer.tv_sec = 60;
+	// timer.tv_usec = 0;
+	// return;
+// }
 
 //------ resolve_command ----- returns index in "commands" array associated to inserted command
 int resolve_command(char *cmd) {
@@ -119,6 +119,7 @@ void add_padding(unsigned char* text) {
 	for(i=strlen(text); i<MAX_LENGTH; i++) {
 		text[i] = '$';
 	}
+	printf("Padded : %s",text);
 }
 
 //------ remove_padding ------ removes padding (in order to print out the username correctly)
@@ -155,10 +156,10 @@ void send_first_msg(unsigned char* source, unsigned char* dest) {
 	enc_initialization(&secret_size, &key_size, &block_size);
 	
 	//TODO change, now it returns "fuckdis"
-	secret = retrieve_key(4); 				
+	secret = retrieve_key(4,"secret_file"); 				
 	
     my_nonce = generate_nonce();
-    msg1 = first_msg(msg1_size, source, dest, my_nonce);
+    msg = first_msg(msg_size, source, dest, my_nonce);
 	
 	//send first msg to server
 	ret = send(server_sd, (void *)msg, msg_size, 0);
@@ -279,9 +280,9 @@ void cmd_quit() {
 	exit(0);
 }
 
-//TODO to be redefined, maybe send msgs
+/* //TODO to be redefined, maybe send msgs
 //------ cmd_hit -----
-void cmd_hit(int cell) {
+ void cmd_hit(int cell) {
 	int		ret;
 	char	cmd = 'h';
 
@@ -317,9 +318,9 @@ void cmd_hit(int cell) {
 		exit(1);
 	}
 	
-	//aggiorno timer
-	timer.tv_sec = 60;
-	timer.tv_usec = 0;
+	//aggiorno //timer
+	//timer.tv_sec = 60;
+	//timer.tv_usec = 0;
 	
 	//controllo se la partita e' finita
 	if(check_win()==my_mark) { //ho vinto
@@ -355,8 +356,8 @@ void cmd_hit_received(int cell) {
 		cmd_disconnect(1);  //1 per indicare che non ho abbandonato la partita
 	}
 	return;
-}
-
+} */
+ 
 //------ get_input ----- discriminates the command inserted by the user (keyboard)
 void get_input() {
 	char cmd[MAX_DIM_CMD];
@@ -400,16 +401,16 @@ void get_input() {
 										//nothing to be done yet
                     break;
 		}
-		case 6:	{ //hit num_cella
+		/* case 6:	{ //hit num_cella
                     scanf("%d", &cell);
                     if(cell<1 || cell>9) {
                         printf("numero cella non valido! must be in [1, 9]\n");
                         return;
                     }
                     //controllo fatto in cmd_hit
-                    cmd_hit(cell-1);
+                    //cmd_hit(cell-1);
                     break;
-		}
+		} */
 		default: printf("non valid command! digit \"!help\" to check the commands list.\n");
 	}
 	return;
@@ -547,11 +548,11 @@ void log_in_server() {
 void start_conversation() {
 	int ret;
 	
-	my_mark = 'X';
-	client_mark = 'O';
+	//my_mark = 'X';
+	//client_mark = 'O';
 	printf("%s ha accettato la partita\n", client_username);
 	printf("Partita avviata con %s\n", client_username);
-	printf("Il tuo simbolo e': %c\n", my_mark);
+	//printf("Il tuo simbolo e': %c\n", my_mark);
 	printf("E' il tuo turno:\n");
 	
 	//TODO togli receive, parametri non più in chiaro ma in messaggio crittato
@@ -576,12 +577,13 @@ void start_conversation() {
 	client_addr.sin_addr.s_addr = client_IP;
 	
 	client_UDP_port = ntohs(client_UDP_port);
-		
-	//aggiorno timer
-	timer.tv_sec = 60;
-	timer.tv_usec = 0;
 	
-	reset();
+		
+	//aggiorno //timer
+	//timer.tv_sec = 60;
+	//timer.tv_usec = 0;
+	
+	//reset();
 	
 	//TODO inviare messaggio crittato con Kab a B, con nonce
 	
@@ -640,7 +642,7 @@ void manage_request() {
 		}
 		//TODO send messaggio in cui accetto con nonce (B->S : A, B, Nb)
 		send_first_msg(client_username, my_username);
-		reset();
+		//reset();
 	}
 	else {	//request refused
 		printf("Connection request refused\n");
@@ -757,16 +759,16 @@ void get_from_client() {
                   cmd_disconnect(2);
                   break;
 		}
-		case 'h' :  {	//hit TODO: redefine
+		/* case 'h' :  {	//hit TODO: redefine
                  	ret = recvfrom(client_sd, (void *)&cell, sizeof(int), 0, (struct sockaddr *)&client_addr, (socklen_t *)&addrlen);
                   if(ret==-1) {
                   	printf("get_from_client error: errore in ricezione coordinate dal client!\n");
                     exit(1);
                   }
                   cell = ntohl(cell);	//cell e' gia' decrementata di 1!
-                  cmd_hit_received(cell);
+                  //cmd_hit_received(cell);
                   break;
-		}
+		} */
 		default	:	{
                   break;
 		}
@@ -845,7 +847,7 @@ int main(int num, char* args[]) {   		//remember: 1st arg is ./client
 		}
 			
 		//TODO: remove time from select
-		ret = select(max_fd+1, &tmp_fd, NULL, NULL, time); 	//attivare timer
+		ret = select(max_fd+1, &tmp_fd, NULL, NULL, 0); 	//attivare timer
 		if(ret==-1) {
 			printf("Select error\n");
 			exit(1);

@@ -26,9 +26,10 @@ struct user {
 	short int	    UDP_port;
 	int		        socket;
 	unsigned long	address;
+	unsigned char 	nonce[NONCE_SIZE];
 	int 	        status; 	//0=free, 1=busy
-	struct user   *other;		//user user is connected to
-	struct user   *next;      //next user in the list
+	struct user   	*other;		//user user is connected to
+	struct user   	*next;      //next user in the list
 };
 
 struct user   *users;         //list of the connected users
@@ -55,6 +56,10 @@ int valid_port(int port) {
 	if(port<1024 || port>=65536)
 		return 0;
 	return 1;
+}
+
+void regenerate(unsigned char* username){
+	    username[MAX_LENGTH] = '\0';
 }
 
 //----- add_to_list ------    adds new user (elem) to the users list
@@ -178,6 +183,33 @@ void cmd_disconnect() {
 	}*/
 }
 
+//------ second msg ------ prepares and returns message with the syntax: (Kab, ip+port, nonce)
+unsigned char* second_msg(int msg_size, unsigned char* session_key, unsigned char* portIP, unsigned char* nonce){
+	
+	int portIPsize = sizeof(short int)+sizeof(unsigned long);
+	unsigned char* msg = calloc (msg_size, sizeof(unsigned char));
+	memcpy(msg, session_key, SESSION_KEY_SIZE);
+	memcpy(msg+SESSION_KEY_SIZE, portIP, portIPsize);
+	memcpy(msg+SESSION_KEY_SIZE + portIPsize, nonce, NONCE_SIZE);
+	return msg;	
+}
+
+void send_second_msg(struct user* msgdest, struct user* other,unsigned char* session_key){
+	unsigned char port[10], address[50];
+	//port = htons(other->UDP_port);
+	sprintf(address, "%lu", other->address);
+	printf("IP: %s\n", address);
+	sprintf(port, "%d", htons(other->UDP_port));
+	printf("port: %s\n", port);
+	strcat(port, address);
+	printf("complete: %s\n", port);
+	//send enc(Kab, ip+port, noncedest)
+	unsigned char* secret 	= calloc(32, sizeof(unsigned char));
+	secret = retrieve_key(32, "secret_file");
+	secret = retrieve_key(32, "secret_file");
+	//msg2 = second_msg(SESSION_KEY_SIZE+portIPsize+NONCE_SIZE, session_key, port )	
+} 
+
 //----- cmd_connect------------
 void cmd_connect() {
 	int 	ret,
@@ -187,7 +219,6 @@ void cmd_connect() {
     struct user   *client2;
 	unsigned char othersname[MAX_LENGTH];
     unsigned char msg1[MAX_LENGTH*2+NONCE_SIZE];
-	unsigned char nonce[NONCE_SIZE];
 	
 	//receive first message from A (A->S : A, B, Na)
 	ret = recv(client->socket, (void *)msg1, (MAX_LENGTH*2+NONCE_SIZE), 0);
@@ -198,17 +229,17 @@ void cmd_connect() {
 	
 	//retrieve B and Na from msg1
 	strncpy(othersname, msg1+MAX_LENGTH, MAX_LENGTH);
-	strncpy(nonce, msg1+MAX_LENGTH*2, NONCE_SIZE);
+	printf("othersname %s\n", othersname);
+	strncpy(client->nonce, msg1+MAX_LENGTH*2, NONCE_SIZE);
 	//TODO check nonce freshness
 	
     //debug
 	printf("othersname: %s\n", othersname);
-	printf("nonce: %s\n", nonce);
 	
 	//SaRa - tmp
 	printf("msg1 %s\n",msg1);
-	if (isFreshNokey(msg1,nonce)==1) printf("it's fresh!\n");
-	else  printf("it's not fresh!\n");
+	//if (isFreshNokey(msg1,nonce)==1) printf("it's fresh!\n");
+	//else  printf("it's not fresh!\n");
 	//
 	
 	//inform client (A) that I'm replying to his connect request
@@ -285,16 +316,21 @@ void cmd_connect() {
 						exit(1);
 					}
 					//retrieve nonce B from msg1
-					strncpy(nonce, msg1+MAX_LENGTH*2, NONCE_SIZE);
+					strncpy(client2->nonce, msg1+MAX_LENGTH*2, NONCE_SIZE);
 					//TODO check nonce freshness
+					
+					regenerate(othersname);
+					
 					//debug
-					printf("usr: %s\n", usr);
-					printf("nonce: %s\n", nonce);
+					printf("otheruser: %s\n", othersname);
+					printf("nonce: %s\n", client2->nonce);
 						
 					//Generate session key Kab
 					unsigned char* session_key=generate_session_key(128); //128 tmp per debug, key_size ora inizializzata su enc_init
 					
 					//TODO invia chiave ad A (crittata con Ka) invia anche porta e IP di B e nonce
+					send_second_msg(client, client2, session_key);
+					
 					//notes: ricorda lunghezza che deve includere ip e porta, A deve controllare nonce
 					
 					//TODO invia chiave a B (crittata con Kb) (invia porta e IP di A?)
@@ -413,10 +449,9 @@ int add_user(int sd) {
 		printf("add_user error: error while receiving username\n");
 		exit(1);
 	}
-	new_user->username[MAX_LENGTH] = '\0';
-	
 	//receive: UDP port
 	ret = recv(sd, (void *)&new_user->UDP_port, sizeof(int), 0);
+	
 	if(ret==-1) {
 		printf("add_user error: error while receiving UDP port\n");
 		exit(1);
@@ -445,9 +480,10 @@ int add_user(int sd) {
         printf("add_user error: error in sending connection ok\n");
         exit(1);
     }
-	
+	regenerate(new_user->username);
 	//add connected user to the list
 	add_to_list(new_user);
+	
 	printf("%s is connected\n", new_user->username);
 	printf("%s is free\n", new_user->username);
 	

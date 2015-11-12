@@ -13,26 +13,29 @@
 #define AES_256_CBC_BIT_MODE 256
 
 #define NONCE_SIZE 4
+#define SESSION_KEY_SIZE 32
 
-char * retrieve_key(const int secret_size) {	
-	/* ready to use, just uncomment
+char * retrieve_key(const int secret_size, unsigned char* filename) {	
 	unsigned char* secret = calloc (secret_size, sizeof(unsigned char));
 	int ret;
 	FILE* file;
 	struct stat info;
-	ret = stat("secret_file", &info);
+	ret = stat(filename, &info);
 	if (ret != 0)
 		return NULL; 	//file not existing
-	file = fopen("secret_file", "r");
-	if(!file)
-		return NULL;	//Error opening the file
-	
-	ret = fread(secret, 1, secret_size, file);
-	if(ret != secret_size)
+	file = fopen(filename, "r");
+	if(!file){
+		printf("Cannot open file");
 		return NULL;
+	}		//Error opening the file
+	ret = fread(secret, 1, secret_size, file);
+	if(ret != secret_size){
+		printf("Wrong secretsize");
+		return NULL;
+	}
 	fclose(file);
-    */
-	return "fuckdis";
+    
+	return secret;
 }
 
 //Initialization of the encryption context
@@ -142,10 +145,10 @@ int create_enc_context(EVP_CIPHER_CTX *ctx, int* block_size) {
    key_size = EVP_CIPHER_CTX_key_length(ctx);
    key = malloc(key_size);
    
-   if (strcmp (retrieve_key(4),"fuckdis")) {
-      printf("Error during key retrieval\n");
-      return 1;
-   }
+   // if (strcmp (retrieve_key(4),"fuckdis")) {
+      // printf("Error during key retrieval\n");
+      // return 1;
+   // }
   
    //Cryptographic key setup
    EVP_CIPHER_CTX_set_key_length(ctx, key_size);
