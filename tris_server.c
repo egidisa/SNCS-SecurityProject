@@ -20,6 +20,11 @@
 //=================================
 
 //===== VARIABLES =================
+//Encryption variables
+	int secret_size;
+	int key_size;
+	int block_size;
+
 //one user
 struct user {
 	unsigned char   username[MAX_LENGTH];
@@ -183,19 +188,33 @@ void cmd_disconnect() {
 	}*/
 }
 
-//------ second msg ------ prepares and returns message with the syntax: (Kab, ip+port, nonce)
-unsigned char* second_msg(int msg_size, unsigned char* session_key, unsigned char* portIP, unsigned char* nonce){
+//------ second msg ------ prepares and returns message with the syntax: (Kab, ip+port, Na, Nb)
+unsigned char* second_msg(int msg_size, unsigned char* session_key, unsigned char* portIP, unsigned char* nonce, unsigned char* nonceother){
 	
-	int portIPsize = sizeof(short int)+sizeof(unsigned long);
-	unsigned char* msg = calloc (msg_size, sizeof(unsigned char));
-	memcpy(msg, session_key, SESSION_KEY_SIZE);
-	memcpy(msg+SESSION_KEY_SIZE, portIP, portIPsize);
-	memcpy(msg+SESSION_KEY_SIZE + portIPsize, nonce, NONCE_SIZE);
+	int portIPsize = strlen(portIP);
+	unsigned char* msg = calloc (msg_size, sizeof(unsigned char*));
+	printf("second_msg: msg = %s\n", msg);
+	//memcpy(msg, session_key, SESSION_KEY_SIZE);
+	strcat(msg, session_key);
+	printf("second_msg: msg = %s\n", msg);
+	//memcpy(msg+SESSION_KEY_SIZE, portIP, portIPsize);
+	strcat(msg, portIP);
+	printf("second_msg: msg = %s\n", msg);
+	//memcpy(msg+SESSION_KEY_SIZE + portIPsize, nonce, NONCE_SIZE);
+	strcat(msg, nonce);
+	printf("second_msg: msg = %s\n", msg);
+	//memcpy(msg+SESSION_KEY_SIZE + portIPsize + NONCE_SIZE, nonceother, NONCE_SIZE);
+	strcat(msg, nonceother);
+	printf("second_msg: msg = %s\n", msg);
 	return msg;	
 }
 
 void send_second_msg(struct user* msgdest, struct user* other,unsigned char* session_key){
-	unsigned char port[10], address[50];
+	unsigned char port[2], address[8];
+	unsigned char* msg2;
+	unsigned char* ct = NULL;
+	int ct_size = 0;
+	int ret;
 	//port = htons(other->UDP_port);
 	sprintf(address, "%lu", other->address);
 	printf("IP: %s\n", address);
@@ -206,8 +225,22 @@ void send_second_msg(struct user* msgdest, struct user* other,unsigned char* ses
 	//send enc(Kab, ip+port, noncedest)
 	unsigned char* secret 	= calloc(32, sizeof(unsigned char));
 	secret = retrieve_key(32, "secret_file");
-	secret = retrieve_key(32, "secret_file");
-	//msg2 = second_msg(SESSION_KEY_SIZE+portIPsize+NONCE_SIZE, session_key, port )	
+	//TODO change key for the two clients
+	//secret = retrieve_key(32, "secret_file");
+	msg2 = second_msg(SESSION_KEY_SIZE+strlen(port)+NONCE_SIZE*2, session_key, port, msgdest->nonce, other->nonce );
+	printf("msg2: %s\n", msg2);
+	ct=encrypt_msg(msg2,block_size ,secret,secret_size, &ct_size);
+	printf("ct: %s", ct);
+	ret = send(msgdest->socket, (void *)&ct_size, sizeof(int), 0);
+	if(ret==-1) {
+		printf("cmd_connect error: error while sending client2 accepted to client\n");
+		exit(1);
+	}
+	ret = send(msgdest->socket, (void *)ct, ct_size, 0);
+	if(ret==-1) {
+		printf("cmd_connect error: error while sending client2 accepted to client\n");
+		exit(1);
+	}
 } 
 
 //----- cmd_connect------------
@@ -231,7 +264,6 @@ void cmd_connect() {
 	strncpy(othersname, msg1+MAX_LENGTH, MAX_LENGTH);
 	printf("othersname %s\n", othersname);
 	strncpy(client->nonce, msg1+MAX_LENGTH*2, NONCE_SIZE);
-	//TODO check nonce freshness
 	
     //debug
 	printf("othersname: %s\n", othersname);
@@ -324,37 +356,24 @@ void cmd_connect() {
 					//debug
 					printf("otheruser: %s\n", othersname);
 					printf("nonce: %s\n", client2->nonce);
-						
+					
 					//Generate session key Kab
-					unsigned char* session_key=generate_session_key(128); //128 tmp per debug, key_size ora inizializzata su enc_init
+					unsigned char* session_key=generate_session_key(SESSION_KEY_SIZE);
 					
-					//TODO invia chiave ad A (crittata con Ka) invia anche porta e IP di B e nonce
-					send_second_msg(client, client2, session_key);
-					
-					//notes: ricorda lunghezza che deve includere ip e porta, A deve controllare nonce
-					
-					//TODO invia chiave a B (crittata con Kb) (invia porta e IP di A?)
-		
+					//send to client2 second message
+					send_second_msg(client2, client, session_key);
+						
                     //send to client (A) that client2 (B) accepted
                     ret = send(client->socket, (void *)&cmd, sizeof(char), 0);
                     if(ret==-1) {
                         printf("cmd_connect error: error while sending client2 accepted to client\n");
                         exit(1);
                     }
-                    //invio porta di client2 a client
-                    port = htons(client2->UDP_port);
-                    ret = send(client->socket, (void *)&port, sizeof(port), 0);
-                    if(ret==-1) {
-                        printf("cmd_connect error: errore in invio porta client2 a client\n");
-                        exit(1);
-                    }
-                    //invio IP di client2 a client
-                    ret = send(client->socket, (void *)&client2->address, sizeof(client2->address), 0);
-                    if(ret==-1) {
-                        printf("cmd_connect error: errore in invio IP client2 a client\n");
-                        exit(1);
-                    }
-
+					
+					//invia chiave ad A (crittata con Ka) invia anche porta e IP di B e nonce
+					send_second_msg(client, client2, session_key);
+					//notes: ricorda lunghezza che deve includere ip e porta, A deve controllare nonce
+		
                     client2->status = 1;    //busy
                     client->status = 1;     //busy
                     client->other = client2;
@@ -494,7 +513,10 @@ int add_user(int sd) {
 
 //------- main ------
 int main(int num, char* args[]) {   //remember: 1st arg is ./server
+	//initialize encryption context
 
+	enc_initialization(&secret_size, &key_size, &block_size);
+	
 	int ret,
         i,
         addrlen,

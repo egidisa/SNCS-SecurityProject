@@ -26,6 +26,11 @@
 //=================================
 
 //===== VARIABLES =================
+//Encryption variables
+	int secret_size;
+	int key_size;
+	int block_size;
+
 //socket descriptors
 int server_sd,
     client_sd;
@@ -39,6 +44,7 @@ struct sockaddr_in  server_addr,
 unsigned char	my_username[MAX_LENGTH];
 unsigned long   my_IP;
 unsigned short	my_UDP_port;	//from 0 to 65535
+unsigned char*  my_nonce;
 //DEchar		    my_mark;
 //DEchar 			tmp_pswd[N_CMD];
 
@@ -46,6 +52,7 @@ unsigned short	my_UDP_port;	//from 0 to 65535
 unsigned char	client_username[MAX_LENGTH];
 unsigned long	client_IP;
 unsigned short	client_UDP_port;	//from 0 to 65535
+unsigned char*  client_nonce;
 //DEchar		    client_mark;
 
 //DEint	my_turn = 1;
@@ -150,14 +157,13 @@ void send_first_msg(unsigned char* source, unsigned char* dest) {
 	int msg_size = MAX_LENGTH*2+NONCE_SIZE; 	//A,B,Na
 	unsigned char* secret 	= calloc(secret_size, sizeof(unsigned char));
 	unsigned char* msg 			= calloc(msg_size, sizeof(unsigned char));
-	//TODO make it global? 
-	unsigned char *my_nonce = calloc(NONCE_SIZE, sizeof(unsigned char));
 	
 	enc_initialization(&secret_size, &key_size, &block_size);
 	
 	//TODO change, now it returns "fuckdis"
 	secret = retrieve_key(4,"secret_file"); 				
 	
+	my_nonce = calloc(NONCE_SIZE, sizeof(unsigned char));
     my_nonce = generate_nonce();
     msg = first_msg(msg_size, source, dest, my_nonce);
 	
@@ -547,6 +553,7 @@ void log_in_server() {
 //------- start_conversation ------ sets up the conversation between the two client
 void start_conversation() {
 	int ret;
+	int msglen;
 	
 	//my_mark = 'X';
 	//client_mark = 'O';
@@ -555,29 +562,76 @@ void start_conversation() {
 	//printf("Il tuo simbolo e': %c\n", my_mark);
 	printf("E' il tuo turno:\n");
 	
-	//TODO togli receive, parametri non più in chiaro ma in messaggio crittato
-	//ricevo dal server la porta di enemy
-	ret = recv(server_sd, (void *)&client_UDP_port, sizeof(client_UDP_port), 0);
+	//TODO receive msg2 length
+	ret = recv(server_sd, (void *)&msglen, sizeof(int), 0);
+	if(ret==-1) {
+		printf("start_game error: errore nel ricevere la porta su cui e' in ascolto l'avversario!\n");
+		exit(1);
+	}	
+	unsigned char* ct = calloc(msglen, sizeof(unsigned char*));
+	//TODO receive msg2, scomporre, controllare nonce, prendere parametri dell'altro
+	ret = recv(server_sd, (void *)ct, msglen, 0);
 	if(ret==-1) {
 		printf("start_game error: errore nel ricevere la porta su cui e' in ascolto l'avversario!\n");
 		exit(1);
 	}
+	unsigned char* secret 	= calloc(32, sizeof(unsigned char));
+	secret = retrieve_key(32, "secret_file");
+	unsigned char* pt = NULL;
+	pt=decrypt_msg(ct,block_size ,msglen,secret);
+	printf("ct: %s\n", ct);
+	printf("pt: %s\n", pt);
+ 	//retrieve session_key, port, ip, Na, Nb
+	unsigned char* session_key 	= calloc(SESSION_KEY_SIZE, sizeof(unsigned char));
+	unsigned char* address = calloc(8, sizeof(unsigned char));
+	unsigned char* port = calloc(3, sizeof(unsigned char));
+	unsigned char* my_new_nonce = calloc(NONCE_SIZE, sizeof(unsigned char));
+	client_nonce = calloc(NONCE_SIZE, sizeof(unsigned char));
+	strncpy(session_key, pt, SESSION_KEY_SIZE);
+	printf("session_key %s\n", session_key);
 
-	//ricevo dal server l'IP di enemy
-	ret = recv(server_sd, (void *)&client_IP, sizeof(client_IP), 0);
-	if(ret==-1) {
-		printf("start_game error: errore nel ricevere l'indirizzo dell'avversario!\n");
-		exit(1);
-	}
+	strncpy(port, pt+SESSION_KEY_SIZE, 3);
+	printf("port %s\n", port);
 	
+	strncpy(address, pt+SESSION_KEY_SIZE+3, 8);
+	printf("address %s\n", address);
+	
+	strncpy(my_new_nonce, pt+SESSION_KEY_SIZE+3+8, NONCE_SIZE);
+	printf("MyNonce %s\n", my_new_nonce);
+	
+	strncpy(client_nonce, pt+SESSION_KEY_SIZE+3+8+NONCE_SIZE, NONCE_SIZE);
+	printf("OtherNonce %s\n", client_nonce);	
+	unsigned char newport[2];
+	strncpy(newport,port,2);
+	//check my_new_nonce freshness
+	if (strcmp(my_nonce,my_new_nonce) == 0 ) printf("Nonce is fresh!\n");
+	else printf("Nonce not fresh\n"); 
+	//TODO disconnect
+	printf("port: %d\n", atoi(newport));
 	//inizializzo parametri avversario
 	memset(&client_addr, 0, sizeof(client_addr));
 	client_addr.sin_family = AF_INET;
-	client_addr.sin_port = client_UDP_port;
-	client_addr.sin_addr.s_addr = client_IP;
-	
+	client_addr.sin_port = atoi(newport);
+	client_addr.sin_addr.s_addr = atoi(address);
+
 	client_UDP_port = ntohs(client_UDP_port);
+	printf("my_port: %d\nclient_port: %d\n", my_UDP_port, client_UDP_port);
+	//test UDP connection
+	char cmd = 't';
+	ret = sendto(client_sd, (void *)&cmd, sizeof(char), 0, (struct sockaddr *)&client_addr, (socklen_t)sizeof(client_addr));
+	if(ret==-1) {
+		printf("cmd_hit error: errore nell'invio all'avversario che ho fatto hit\n");
+		exit(1);
+	}
+	//mando test
+	unsigned char* test = "TEST"; //converto in formato di rete
+	ret = sendto(client_sd, (void *)test, 4, 0, (struct sockaddr *)&client_addr, (socklen_t)sizeof(client_addr));
+	if(ret==-1) {
+		printf("cmd_hit error: errore nell'invio delle coordinate all'avversario\n");
+		exit(1);
+	}
 	
+	printf("after test send\n");
 		
 	//aggiorno //timer
 	//timer.tv_sec = 60;
@@ -596,6 +650,8 @@ void manage_request() {
         length;
 	char	cmd,
         res;
+	int msglen;
+	
 	
 	
 	memset(client_username, 0, MAX_LENGTH);
@@ -653,6 +709,53 @@ void manage_request() {
 			exit(1);
 		}
 	}
+	
+	//receive second message with Kab (S->B : (Kab, portIPA, Nb, Na)kb)
+	ret = recv(server_sd, (void *)&msglen, sizeof(int), 0);
+	if(ret==-1) {
+		printf("start_game error: errore nel ricevere la porta su cui e' in ascolto l'avversario!\n");
+		exit(1);
+	}	
+	unsigned char* ct = calloc(msglen, sizeof(unsigned char*));
+	//TODO receive msg2, scomporre, controllare nonce, prendere parametri dell'altro
+	ret = recv(server_sd, (void *)ct, msglen, 0);
+	if(ret==-1) {
+		printf("start_game error: errore nel ricevere la porta su cui e' in ascolto l'avversario!\n");
+		exit(1);
+	}
+	unsigned char* secret 	= calloc(32, sizeof(unsigned char));
+	secret = retrieve_key(32, "secret_file");
+	unsigned char* pt = NULL;
+	pt=decrypt_msg(ct,block_size ,msglen,secret);
+	
+	printf("ct: %s\n", ct);
+	printf("pt: %s\n", pt);
+	//retrieve session_key, port, ip, Na, Nb
+	unsigned char* session_key 	= calloc(SESSION_KEY_SIZE, sizeof(unsigned char));
+	unsigned char* address = calloc(8, sizeof(unsigned char));
+	unsigned char* port = calloc(23, sizeof(unsigned char));
+	unsigned char* my_new_nonce = calloc(NONCE_SIZE, sizeof(unsigned char));
+	client_nonce = calloc(NONCE_SIZE, sizeof(unsigned char));
+	strncpy(session_key, pt, SESSION_KEY_SIZE);
+	printf("session_key %s\n", session_key);
+
+	strncpy(port, pt+SESSION_KEY_SIZE, 3);
+	printf("port %s\n", port);
+	
+	strncpy(address, pt+SESSION_KEY_SIZE+3, 8);
+	printf("address %s\n", address);
+	
+	strncpy(my_new_nonce, pt+SESSION_KEY_SIZE+3+8, NONCE_SIZE);
+	printf("MyNonce %s\n", my_new_nonce);
+	
+	strncpy(client_nonce, pt+SESSION_KEY_SIZE+3+8+NONCE_SIZE, NONCE_SIZE);
+	printf("OtherNonce %s\n", client_nonce);	
+	
+	//check my_new_nonce freshness
+	if (strcmp(my_nonce,my_new_nonce) == 0 ) printf("Nonce is fresh!\n");
+	else printf("Nonce not fresh\n"); 
+	//TODO disconnect
+	
 	return;
 }
 //------- get_from_server ------ server reply received, need to check in response to what
@@ -701,6 +804,7 @@ void get_from_server() {
                   case 'a': {	//client accepted request
 															//TODO ricevi messaggio crittato
 															//TODO decritta/scomponi messaggio, retrieve Kab
+															//TODO controlla NONCE
 															//TODO inizializza parametri B (IP e port)
                               start_conversation();
                               break;
@@ -769,6 +873,17 @@ void get_from_client() {
                   //cmd_hit_received(cell);
                   break;
 		} */
+		case 't' : {
+					printf("'t' received!\n");
+					unsigned char* test[4];
+					ret = recvfrom(client_sd, (void *)test, 4, 0, (struct sockaddr *)&client_addr, (socklen_t *)&addrlen);
+                  if(ret==-1) {
+                  	printf("get_from_client error: errore in ricezione coordinate dal client!\n");
+                    exit(1);
+					printf("received from client: %s\n", test);
+				  }
+				  break;
+		}
 		default	:	{
                   break;
 		}
@@ -780,6 +895,9 @@ void get_from_client() {
 
 //------- main ------
 int main(int num, char* args[]) {   		//remember: 1st arg is ./client
+	//encryption context initialization
+	enc_initialization(&secret_size, &key_size, &block_size);
+	
 	int ret,
       i;
 //DE	struct timeval *time;
@@ -812,6 +930,8 @@ int main(int num, char* args[]) {   		//remember: 1st arg is ./client
 	my_addr.sin_family = AF_INET;
 	my_addr.sin_port = htons(my_UDP_port);
 	my_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+	
+	printf("my port: %d\n", my_UDP_port);
 	
 	//Client bind
 	ret = bind(client_sd, (struct sockaddr*)&my_addr, sizeof(my_addr));
@@ -880,6 +1000,7 @@ int main(int num, char* args[]) {   		//remember: 1st arg is ./client
 				
 				if(i==client_sd) {				//ready descriptor is client
 					//receive from peer
+					printf("get from client\n");
 					get_from_client();			
 					//update timer
 					//DEtimer.tv_sec = 60;
