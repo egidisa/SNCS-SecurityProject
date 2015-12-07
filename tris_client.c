@@ -18,7 +18,7 @@
 
 #define MAX_DIM_CMD	12	//max dimension for commands
 #define N_CMD	    7	//number of available commands
-#define MAX_LENGTH 	10	//max length for the username
+#define MAX_LENGTH 	11	//max length for the username
 #define HELP_MENU "Sono disponibili i seguenti comandi:\n * !help --> mostra l'elenco dei comandi disponibili\n * !who --> mostra l'elenco dei client connessi al server\n * !connect nome_client --> avvia una partita con l'utente nome_client\n * !disconnect --> disconnette il client dall'attuale partita intrapresa con un altro peer\n * !quit --> disconnette il client dal server\n * !show_map --> mostra la mappa di gioco\n * !hit num_cell --> marca la casella num_cell (valido solo quando e' il proprio turno)\n"
 //TODO: translate help
 
@@ -123,7 +123,7 @@ int resolve_command(char *cmd) {
 //------ add_padding ------ adds padding '$' to inserted username if < MAX_LENGTH
 void add_padding(unsigned char* text) {
 	int i;
-	for(i=strlen(text); i<MAX_LENGTH; i++) {
+	for(i=strlen(text); i<MAX_LENGTH-1; i++) {
 		text[i] = '$';
 	}
 	printf("Padded : %s",text);
@@ -132,7 +132,7 @@ void add_padding(unsigned char* text) {
 //------ remove_padding ------ removes padding (in order to print out the username correctly)
 void remove_padding(unsigned char* text) {
 	int i;
-	for(i=0; i<MAX_LENGTH; i++) {
+	for(i=0; i<MAX_LENGTH-1; i++) {
 		if(text[i]=='$') {
 			text[i] = '\0';
 			break;
@@ -473,7 +473,8 @@ void print_client_list(int tot) {
 			printf("get_from_server error: error while receiving client name from server!\n");
 			exit(1);
 		}
-		client_name[MAX_LENGTH] = '\0';
+		client_name[MAX_LENGTH-1] = '\0';
+		
 		//receive client status
 		ret = recv(server_sd, (void *)&status, sizeof(int), 0);
 		if(ret==-1) {
@@ -503,10 +504,11 @@ void log_in_server() {
 	
 	memset(UDP, 0, 7);
 		
-	printf("\nInsert username (max %d characters): ", MAX_LENGTH);
+	printf("\nInsert username (max %d characters): ", MAX_LENGTH-1);
 	scanf("%s", my_username);
 	add_padding(my_username);
 	
+	//TODO: limit port range to 4
 	do {
 		printf("Insert listening UDP port: ");
 		scanf("%s", UDP);
@@ -524,6 +526,7 @@ void log_in_server() {
 	
 	//send (to server): UDP port
 	port_tmp = htons(my_UDP_port);
+	printf("htons port%d\n",port_tmp);
 	ret = send(server_sd, (void *)&port_tmp, sizeof(port_tmp), 0);
 	if(ret==-1 || ret<sizeof(port_tmp)) {
 		printf("log_in_server error: error in sending UDP port\n");
@@ -554,22 +557,17 @@ void log_in_server() {
 void start_conversation() {
 	int ret;
 	int msglen;
-	
-	//my_mark = 'X';
-	//client_mark = 'O';
+
 	printf("%s ha accettato la partita\n", client_username);
 	printf("Partita avviata con %s\n", client_username);
-	//printf("Il tuo simbolo e': %c\n", my_mark);
+
 	printf("E' il tuo turno:\n");
-	
-	//TODO receive msg2 length
 	ret = recv(server_sd, (void *)&msglen, sizeof(int), 0);
 	if(ret==-1) {
 		printf("start_game error: errore nel ricevere la porta su cui e' in ascolto l'avversario!\n");
 		exit(1);
 	}	
 	unsigned char* ct = calloc(msglen, sizeof(unsigned char*));
-	//TODO receive msg2, scomporre, controllare nonce, prendere parametri dell'altro
 	ret = recv(server_sd, (void *)ct, msglen, 0);
 	if(ret==-1) {
 		printf("start_game error: errore nel ricevere la porta su cui e' in ascolto l'avversario!\n");
@@ -584,37 +582,36 @@ void start_conversation() {
  	//retrieve session_key, port, ip, Na, Nb
 	unsigned char* session_key 	= calloc(SESSION_KEY_SIZE, sizeof(unsigned char));
 	unsigned char* address = calloc(8, sizeof(unsigned char));
-	unsigned char* port = calloc(3, sizeof(unsigned char));
+	unsigned char* port = calloc(4, sizeof(unsigned char));
 	unsigned char* my_new_nonce = calloc(NONCE_SIZE, sizeof(unsigned char));
 	client_nonce = calloc(NONCE_SIZE, sizeof(unsigned char));
 	strncpy(session_key, pt, SESSION_KEY_SIZE);
 	printf("session_key %s\n", session_key);
 
-	strncpy(port, pt+SESSION_KEY_SIZE, 3);
+	strncpy(port, pt+SESSION_KEY_SIZE+1, 4);
 	printf("port %s\n", port);
+	port[5] = '\0';
 	
-	strncpy(address, pt+SESSION_KEY_SIZE+3, 8);
+	strncpy(address, pt+SESSION_KEY_SIZE+5, 8);
 	printf("address %s\n", address);
 	
-	strncpy(my_new_nonce, pt+SESSION_KEY_SIZE+3+8, NONCE_SIZE);
+	strncpy(my_new_nonce, pt+SESSION_KEY_SIZE+5+8, NONCE_SIZE);
 	printf("MyNonce %s\n", my_new_nonce);
 	
-	strncpy(client_nonce, pt+SESSION_KEY_SIZE+3+8+NONCE_SIZE, NONCE_SIZE);
-	printf("OtherNonce %s\n", client_nonce);	
-	unsigned char newport[2];
-	strncpy(newport,port,2);
+	strncpy(client_nonce, pt+SESSION_KEY_SIZE+5+8+NONCE_SIZE, NONCE_SIZE);
+	printf("OtherNonce %s\n", client_nonce);
+	
 	//check my_new_nonce freshness
 	if (strcmp(my_nonce,my_new_nonce) == 0 ) printf("Nonce is fresh!\n");
 	else printf("Nonce not fresh\n"); 
 	//TODO disconnect
-	printf("port: %d\n", atoi(newport));
 	//inizializzo parametri avversario
 	memset(&client_addr, 0, sizeof(client_addr));
 	client_addr.sin_family = AF_INET;
-	client_addr.sin_port = atoi(newport);
+	client_addr.sin_port = htons(atoi(port));
 	client_addr.sin_addr.s_addr = atoi(address);
 
-	client_UDP_port = ntohs(client_UDP_port);
+	client_UDP_port = atoi(port);
 	printf("my_port: %d\nclient_port: %d\n", my_UDP_port, client_UDP_port);
 	//test UDP connection
 	char cmd = 't';
@@ -632,12 +629,6 @@ void start_conversation() {
 	}
 	
 	printf("after test send\n");
-		
-	//aggiorno //timer
-	//timer.tv_sec = 60;
-	//timer.tv_usec = 0;
-	
-	//reset();
 	
 	//TODO inviare messaggio crittato con Kab a B, con nonce
 	
@@ -646,50 +637,36 @@ void start_conversation() {
 
 //------- manage_request ------- connection request received from client
 void manage_request() {
-	int 	ret,
-        length;
-	char	cmd,
-        res;
+	int ret, length;
+	char cmd, res;
 	int msglen;
-	
-	
-	
 	memset(client_username, 0, MAX_LENGTH);
 	//receive client username
 	ret = recv(server_sd, (void *)client_username, MAX_LENGTH, 0);
-	if(ret==-1) {
+	if(ret==-1) { 					//error while receiving username
 		printf("manage_request error: error while receiving client username!\n");
 		exit(1);
 	}
-	client_username[MAX_LENGTH] = '\0';
-
-	if(shell=='#') { //busy
-		//notify server that I'm already busy
+	client_username[MAX_LENGTH-1] = '\0';
+	if(shell=='#') { 				//this client is busy, notify server
+		//notify server this client already busy
 		cmd = 'b';
 		ret = send(server_sd, (void *)&cmd, sizeof(cmd), 0);
-		if(ret==-1) {
+		if(ret==-1) {				//error sending notification to server
 			printf("manage_request error: error while sending busy state to server!\n");
 			exit(1);
 		}
 		return;
 	}
-	
 	printf("%s asked to connect with you!\n", client_username);
-	
 	do {
-		scanf("%c", &res);	//metto questo perche' se no stampa 2 volte "accettare..." perche' legge senza aspettare che digiti la prima volta!
-		printf("accept request? (y|n): ");	//PERCHE' LA PRIMA VOLTA LEGGE SENZA ASPETTARE CHE DIGITI?? (risolto con scanf sopra)
+		scanf("%c", &res);			//to avoid double print
+		printf("accept request? (y|n): ");
 		fflush(stdin);
 		scanf("%c", &res);
-	}while(res!='y' && res!='Y' && res!='n' && res!= 'N');	
-	
+	}while(res!='y' && res!='Y' && res!='n' && res!= 'N');		
 	if(res=='y' || res=='Y') {
-		//my_mark = 'O';
-		//client_mark = 'X';
-		//my_turn = 0;
 		printf("Request accepted!\n");
-		//printf("Il tuo simbolo e': %s\n", &my_mark);
-		//printf("E' il turno di %s\n", client_username);
 		cmd = 'a';
 		ret = send(server_sd, (void *)&cmd, sizeof(cmd), 0);
 		if(ret==-1) {
@@ -698,9 +675,8 @@ void manage_request() {
 		}
 		//TODO send messaggio in cui accetto con nonce (B->S : A, B, Nb)
 		send_first_msg(client_username, my_username);
-		//reset();
 	}
-	else {	//request refused
+	else {							//client refused the request
 		printf("Connection request refused\n");
 		cmd = 'r';
 		ret = send(server_sd, (void *)&cmd, sizeof(cmd), 0);
@@ -712,43 +688,46 @@ void manage_request() {
 	
 	//receive second message with Kab (S->B : (Kab, portIPA, Nb, Na)kb)
 	ret = recv(server_sd, (void *)&msglen, sizeof(int), 0);
-	if(ret==-1) {
-		printf("start_game error: errore nel ricevere la porta su cui e' in ascolto l'avversario!\n");
+	if(ret==-1) {					//error while receiving the other client's port
+		printf("error: error while receiving the other client's port\n");
 		exit(1);
 	}	
+	
 	unsigned char* ct = calloc(msglen, sizeof(unsigned char*));
 	//TODO receive msg2, scomporre, controllare nonce, prendere parametri dell'altro
 	ret = recv(server_sd, (void *)ct, msglen, 0);
-	if(ret==-1) {
-		printf("start_game error: errore nel ricevere la porta su cui e' in ascolto l'avversario!\n");
+	if(ret==-1) {					//error while receiving the other client's port
+		printf("error:error while receiving the other client's port\n");
 		exit(1);
 	}
 	unsigned char* secret 	= calloc(32, sizeof(unsigned char));
 	secret = retrieve_key(32, "secret_file");
 	unsigned char* pt = NULL;
 	pt=decrypt_msg(ct,block_size ,msglen,secret);
+	//debug prints
+	printf("cipher text: %s\n", ct);
+	printf("plain text: %s\n", pt);
 	
-	printf("ct: %s\n", ct);
-	printf("pt: %s\n", pt);
-	//retrieve session_key, port, ip, Na, Nb
+	//retrieve session_key, port, ip, Na, Nb from plaintext
 	unsigned char* session_key 	= calloc(SESSION_KEY_SIZE, sizeof(unsigned char));
 	unsigned char* address = calloc(8, sizeof(unsigned char));
-	unsigned char* port = calloc(23, sizeof(unsigned char));
+	unsigned char* port = calloc(4, sizeof(unsigned char));
 	unsigned char* my_new_nonce = calloc(NONCE_SIZE, sizeof(unsigned char));
 	client_nonce = calloc(NONCE_SIZE, sizeof(unsigned char));
 	strncpy(session_key, pt, SESSION_KEY_SIZE);
 	printf("session_key %s\n", session_key);
 
-	strncpy(port, pt+SESSION_KEY_SIZE, 3);
+	strncpy(port, pt+SESSION_KEY_SIZE+1, 4);
 	printf("port %s\n", port);
+	printf("port (atoi) %d\n", atoi(port));
 	
-	strncpy(address, pt+SESSION_KEY_SIZE+3, 8);
+	strncpy(address, pt+SESSION_KEY_SIZE+5, 8);
 	printf("address %s\n", address);
 	
-	strncpy(my_new_nonce, pt+SESSION_KEY_SIZE+3+8, NONCE_SIZE);
+	strncpy(my_new_nonce, pt+SESSION_KEY_SIZE+5+8, NONCE_SIZE);
 	printf("MyNonce %s\n", my_new_nonce);
 	
-	strncpy(client_nonce, pt+SESSION_KEY_SIZE+3+8+NONCE_SIZE, NONCE_SIZE);
+	strncpy(client_nonce, pt+SESSION_KEY_SIZE+5+8+NONCE_SIZE, NONCE_SIZE);
 	printf("OtherNonce %s\n", client_nonce);	
 	
 	//check my_new_nonce freshness
@@ -758,79 +737,75 @@ void manage_request() {
 	
 	return;
 }
-//------- get_from_server ------ server reply received, need to check in response to what
+//------- get_from_server ------ server reply received, check for case
 void get_from_server() {
-	int 	ret,
-        tot_users;
+	int ret, tot_users;
 	char	cmd;
-	
+	//receive from server
 	ret = recv(server_sd, (void *)&cmd, sizeof(char), 0);
-	if(ret==-1) {
+	if(ret==-1) {					//error receiving command
 		printf("get_from_server error: error while receiving command from server\n");
 		exit(1);
 	}
-		
-	if(ret==0) { //server disconnected
+	if(ret==0) { 					//server disconnected
 		printf("Server disconnected!\n");
 		fflush(stdout);
 		exit(2);
 	}
-
 	switch(cmd) {
-		case 'w': {	//who
-        				printf("Online users:\n");
+		case 'w': {					//who - returns list of online users
+					printf("Online users:\n");
                 //receive number of connected clients
                 ret = recv(server_sd, (void *)&tot_users, sizeof(int), 0);
-                if(ret==-1) {
+                if(ret==-1) {		//error
                     printf("get_from_server error: error while receiving number of users!\n");
                     exit(1);
                 }
                 print_client_list(tot_users);
                 break;
 		}
-		
-		case 'c': {	//connect
+		case 'c': {					//connect
                 //receive client's reply from server
                 ret = recv(server_sd, (void *)&cmd, sizeof(char), 0);
-                if(ret==-1) {
+                if(ret==-1) {		//error in receiving from server
                 	printf("get_from_server error: error while receiving \"accepted\" from server!\n");
                   exit(1);
                 }
                 switch(cmd) {
-                  case 'i': {	//client_username not existent!
+                  case 'i': {		//client_username does not exist
                               printf("Impossible to connect to %s: username not existent!\n", client_username);
                   						break;
                   }
-                  case 'a': {	//client accepted request
-															//TODO ricevi messaggio crittato
-															//TODO decritta/scomponi messaggio, retrieve Kab
-															//TODO controlla NONCE
-															//TODO inizializza parametri B (IP e port)
+                  case 'a': {		//client accepted request
+				  
+									//TODO ricevi messaggio crittato
+									//TODO decritta/scomponi messaggio, retrieve Kab
+									//TODO controlla NONCE
+									//TODO inizializza parametri B (IP e port)
+									
                               start_conversation();
                               break;
                   }
-                  case 'r': {	//client refused connection
+                  case 'r': {		//client refused connection
                               printf("Impossible to connect to %s: user refused!\n", client_username);
                               break;
                   }
-                  case 'b': { //client is busy
+                  case 'b': {		//client is busy
                               printf("Impossible to connect to%s: user already busy!\n", client_username);
                               break;
                   }
-                  default : {	//should not happen :)
+                  default : {		//default option, should not happen anyways
                               printf("Server reply incomprehensible!\n");
                               break;
                   }
             		}
                 break;
-		}
-		
-		case 'o': {	//connection request
+		}	
+		case 'o': {					//connection request
                 manage_request();
                 break;
 		}
-		
-		default : { //nothing to do
+		default : { 
 		}
 	}
 	return;
@@ -848,22 +823,22 @@ void get_from_client() {
 	//TODO lo prendo da qui IP/porta di A? o lo recupero prima?
 	
 	ret = recvfrom(client_sd, (void *)&cmd, sizeof(cmd), 0, (struct sockaddr *)&client_addr, (socklen_t *)&addrlen);
-	if(ret==-1) {
+	if(ret==-1) {					// error while receiving command from client
 		printf("get_from_client error: error while receiving command from client!\n");
 		exit(1);
 	}
-	if(ret==0) {
+	if(ret==0) {					//no data received
 		printf("get_from_client error: no data received!\n");
 		return;
 	}
 	
 	switch(cmd) {
-		case 'd' :  {	//disconnect
-                 	printf("%s disconnected!\n", client_username);
+		case 'd' :  {				//disconnect
+                  printf("%s disconnected!\n", client_username);
                   cmd_disconnect(2);
                   break;
 		}
-		/* case 'h' :  {	//hit TODO: redefine
+		/* case 'h' :  {	//hit TODO: redefine for final exchange
                  	ret = recvfrom(client_sd, (void *)&cell, sizeof(int), 0, (struct sockaddr *)&client_addr, (socklen_t *)&addrlen);
                   if(ret==-1) {
                   	printf("get_from_client error: errore in ricezione coordinate dal client!\n");
@@ -873,9 +848,9 @@ void get_from_client() {
                   //cmd_hit_received(cell);
                   break;
 		} */
-		case 't' : {
+		 case 't' : {				//test
 					printf("'t' received!\n");
-					unsigned char* test[4];
+					unsigned char test[4];
 					ret = recvfrom(client_sd, (void *)test, 4, 0, (struct sockaddr *)&client_addr, (socklen_t *)&addrlen);
                   if(ret==-1) {
                   	printf("get_from_client error: errore in ricezione coordinate dal client!\n");
@@ -883,7 +858,7 @@ void get_from_client() {
 					printf("received from client: %s\n", test);
 				  }
 				  break;
-		}
+		} 
 		default	:	{
                   break;
 		}
@@ -902,8 +877,8 @@ int main(int num, char* args[]) {   		//remember: 1st arg is ./client
       i;
 //DE	struct timeval *time;
 
-	//check number of parameters
-	if(num!=3) {
+	
+	if(num!=3) {					//check number of parameters
 		printf("Wrong number of parameter!\n");
 		return -1;
 	}
@@ -920,7 +895,7 @@ int main(int num, char* args[]) {   		//remember: 1st arg is ./client
 	
 	//Opens UDP socket
 	client_sd = socket(AF_INET, SOCK_DGRAM, 0);
-	if(client_sd==-1) {
+	if(client_sd==-1) {				//error while creating UDP socket
 		printf("main: error while creating UDP socket\n");
 		exit(1);
 	}
@@ -972,25 +947,13 @@ int main(int num, char* args[]) {   		//remember: 1st arg is ./client
 			printf("Select error\n");
 			exit(1);
 		}
-		/* DE
-		if(ret==0) { 										//timer expired
-			if(my_turn) 
-				printf("il tempo e' scaduto! HAI PERSO!\n");
-			else
-				printf("il tempo dell'avversario e' scaduto! HAI VINTO!\n");
-			cmd_disconnect(1);								//fine partita
-			continue;
-		}
-		*/
+
 		for(i=0; i<=max_fd; i++) {
 			if(FD_ISSET(i, &tmp_fd)) { 	//there is a ready descriptor
 			
 				if(i==0) {								//ready descriptor is STDIN
 					//read input (command)
 					get_input();
-					//update timer
-					//DEtimer.tv_sec = 60;
-					//DEtimer.tv_usec = 0;
 				}
 				
 				if(i==server_sd) {				//ready descriptor is server
@@ -1001,10 +964,7 @@ int main(int num, char* args[]) {   		//remember: 1st arg is ./client
 				if(i==client_sd) {				//ready descriptor is client
 					//receive from peer
 					printf("get from client\n");
-					get_from_client();			
-					//update timer
-					//DEtimer.tv_sec = 60;
-					//DEtimer.tv_usec = 0;
+					get_from_client();	
 				}
 			}
 		}

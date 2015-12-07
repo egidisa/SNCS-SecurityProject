@@ -16,7 +16,7 @@
 
 //===== COSTANTS ==================
 #define MAX_CONNECTION 	10  //max number of user
-#define MAX_LENGTH      10	//max length for the username TODO: move to a common file?
+#define MAX_LENGTH      11	//max length for the username TODO: move to a common file?
 //=================================
 
 //===== VARIABLES =================
@@ -28,7 +28,7 @@
 //one user
 struct user {
 	unsigned char   username[MAX_LENGTH];
-	short int	    UDP_port;
+	short		    UDP_port;
 	int		        socket;
 	unsigned long	address;
 	unsigned char 	nonce[NONCE_SIZE];
@@ -52,6 +52,7 @@ int	listener;                       //listening socket descriptor (only in main)
 fd_set 	master,     //master file descriptor list
         tmp_fd;     //temporary file descriptor list for select
 int		max_fd;
+
 //=================================
 
 //===== UTILITY FUNCTIONS =========
@@ -64,14 +65,16 @@ int valid_port(int port) {
 }
 
 void regenerate(unsigned char* username){
-	    username[MAX_LENGTH] = '\0';
+	    //username[MAX_LENGTH] = '\0';
 }
 
 //----- add_to_list ------    adds new user (elem) to the users list
 void add_to_list(struct user *elem) {
+	printf("elem port%d\n", elem->UDP_port);
 	tot_users++;
 	elem->next = users;
 	users = elem;
+	printf("elem port2%d\n", elem->UDP_port);
 }
 
 //----- remove_from_list ------ removes specified user (elem) from the users list
@@ -118,7 +121,7 @@ struct user* find_user_by_username(char *name) {
 	return NULL;
 }
 
-//----- exist -------------	returns 1 if user with username name is already in the list
+//----- exist -------------	returns 1 if user with username "name" is already in the list
 int exist(char *name) {
 	struct user *tmp = users;
 	while(tmp!=NULL) {
@@ -155,7 +158,9 @@ void cmd_who() {
 	while(tmp) {	//until there are users (tot_users times)
 		
 		//send user name
+		printf("Client name: %s\n",tmp->username);
 		ret = send(client->socket, (void *)tmp->username, MAX_LENGTH, 0);
+		printf("Client name: %s\n",tmp->username);
 		if(ret==-1 || ret<MAX_LENGTH) {
 			printf("cmd_who error: error while sending username\n");
 			exit(1);
@@ -210,7 +215,7 @@ unsigned char* second_msg(int msg_size, unsigned char* session_key, unsigned cha
 }
 
 void send_second_msg(struct user* msgdest, struct user* other,unsigned char* session_key){
-	unsigned char port[2], address[8];
+	unsigned char port[4], address[8];
 	unsigned char* msg2;
 	unsigned char* ct = NULL;
 	int ct_size = 0;
@@ -218,15 +223,13 @@ void send_second_msg(struct user* msgdest, struct user* other,unsigned char* ses
 	//port = htons(other->UDP_port);
 	sprintf(address, "%lu", other->address);
 	printf("IP: %s\n", address);
-	sprintf(port, "%d", htons(other->UDP_port));
-	printf("port: %s\n", port);
+	sprintf(port, "%d", other->UDP_port);
 	strcat(port, address);
 	printf("complete: %s\n", port);
 	//send enc(Kab, ip+port, noncedest)
 	unsigned char* secret 	= calloc(32, sizeof(unsigned char));
 	secret = retrieve_key(32, "secret_file");
 	//TODO change key for the two clients
-	//secret = retrieve_key(32, "secret_file");
 	msg2 = second_msg(SESSION_KEY_SIZE+strlen(port)+NONCE_SIZE*2, session_key, port, msgdest->nonce, other->nonce );
 	printf("msg2: %s\n", msg2);
 	ct=encrypt_msg(msg2,block_size ,secret,secret_size, &ct_size);
@@ -270,9 +273,6 @@ void cmd_connect() {
 	
 	//SaRa - tmp
 	printf("msg1 %s\n",msg1);
-	//if (isFreshNokey(msg1,nonce)==1) printf("it's fresh!\n");
-	//else  printf("it's not fresh!\n");
-	//
 	
 	//inform client (A) that I'm replying to his connect request
 	cmd = 'c'; //connect
@@ -293,6 +293,7 @@ void cmd_connect() {
 	}
 	
 	client2 = find_user_by_username(othersname);
+	printf("Client2 udp_port %d",client2->UDP_port);
 	//forward connection request to client2 (B)
     //send command identifying request
     cmd = 'o';
@@ -450,6 +451,8 @@ int add_user(int sd) {
 	int 	ret,
             length;
 	char 	cmd;
+	unsigned char usr[MAX_LENGTH];
+	short UDP_port_tmp = 0;
 			
 	struct user *new_user = malloc(sizeof(struct user));
 	
@@ -461,25 +464,31 @@ int add_user(int sd) {
 	new_user->socket  = sd;
 	new_user->status  = 0;
 	new_user->other   = NULL;
+	memset(new_user->username, 0, MAX_LENGTH);
+	new_user->UDP_port = 0;
+	new_user->next = NULL;
+	memset(new_user->nonce, 0, NONCE_SIZE);
 	
 	//receive: username
-	ret = recv(sd, (void *)new_user->username, MAX_LENGTH, 0);
+	ret = recv(sd, (void *)usr, MAX_LENGTH, 0);
 	if(ret==-1) {
 		printf("add_user error: error while receiving username\n");
 		exit(1);
 	}
+	usr[MAX_LENGTH] = '\0';
+	strcpy(new_user->username, usr);
 	//receive: UDP port
-	ret = recv(sd, (void *)&new_user->UDP_port, sizeof(int), 0);
-	
+	ret = recv(sd, (void *)&UDP_port_tmp, sizeof(int), 0);
 	if(ret==-1) {
 		printf("add_user error: error while receiving UDP port\n");
 		exit(1);
 	}
-	
+	printf("received port raw%d\n", UDP_port_tmp);
+	printf("received username: %s\n",new_user->username);
+	new_user->UDP_port = ntohs(UDP_port_tmp);
+	printf("received username: %s\n",new_user->username);
 	//while working in local I should check that users don't connect on the same UDP port
-	
-	new_user->UDP_port = ntohs(new_user->UDP_port);
-	
+	printf("received port ntohs%d\n",new_user->UDP_port);
 	if(exist(new_user->username)) {
 		cmd = 'e'; //exists
 		ret = send(sd, (void *)&cmd, sizeof(cmd), 0);
@@ -492,6 +501,8 @@ int add_user(int sd) {
 		cmd_quit(1);
 		return 0;
 	}
+	
+	
 	//connection accepted, need to send something? send @ to be sure
 	cmd = '@';
 	ret = send(sd, (void *)&cmd, sizeof(cmd), 0);
@@ -499,12 +510,16 @@ int add_user(int sd) {
         printf("add_user error: error in sending connection ok\n");
         exit(1);
     }
-	regenerate(new_user->username);
+	printf("new user port%d\n",new_user->UDP_port);
+	//regenerate(new_user->username);
+	printf("new user port2%d\n",new_user->UDP_port);
 	//add connected user to the list
 	add_to_list(new_user);
 	
 	printf("%s is connected\n", new_user->username);
 	printf("%s is free\n", new_user->username);
+	
+	printf("new user port%d\n",new_user->UDP_port);
 	
 	return 1;
 }
