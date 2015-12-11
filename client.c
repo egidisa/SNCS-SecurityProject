@@ -17,10 +17,9 @@
 //===== COSTANTS ==================
 
 #define MAX_DIM_CMD	12	//max dimension for commands
-#define N_CMD	    7	//number of available commands
+#define N_CMD	    5	//number of available commands
 #define MAX_LENGTH 	11	//max length for the username
-#define HELP_MENU "Sono disponibili i seguenti comandi:\n * !help --> mostra l'elenco dei comandi disponibili\n * !who --> mostra l'elenco dei client connessi al server\n * !connect nome_client --> avvia una partita con l'utente nome_client\n * !disconnect --> disconnette il client dall'attuale partita intrapresa con un altro peer\n * !quit --> disconnette il client dal server\n * !show_map --> mostra la mappa di gioco\n * !hit num_cell --> marca la casella num_cell (valido solo quando e' il proprio turno)\n"
-//TODO: translate help
+#define HELP_MENU "The available commands are:\n * !help --> Displays the list of the commands\n * !who --> Displays the list of the connected clients\n * !connect client_name --> Forwards a connection request to the specified client_name\n * !disconnect --> Disconnects the client from the current session\n * !quit --> Disconnects the client from the server\n"
 
 //NOTE: client indicates the other user whom I connect to
 //=================================
@@ -30,6 +29,7 @@
 	int secret_size;
 	int key_size;
 	int block_size;
+	unsigned char* session_key;
 
 //socket descriptors
 int server_sd,
@@ -39,37 +39,27 @@ int server_sd,
 struct sockaddr_in  server_addr,
                     my_addr,
                     client_addr;
+int addrlen = sizeof(client_addr);
 		
 //my data
 unsigned char	my_username[MAX_LENGTH];
 unsigned long   my_IP;
-unsigned short	my_UDP_port;	//from 0 to 65535
+unsigned short	my_UDP_port;		//from 0 to 65535
 unsigned char*  my_nonce;
-//DEchar		    my_mark;
-//DEchar 			tmp_pswd[N_CMD];
 
 //other's data
 unsigned char	client_username[MAX_LENGTH];
 unsigned long	client_IP;
 unsigned short	client_UDP_port;	//from 0 to 65535
 unsigned char*  client_nonce;
-//DEchar		    client_mark;
 
-//DEint	my_turn = 1;
-
-//TODO modify commands
 char commands[N_CMD][MAX_DIM_CMD] = {
 	"!help",			//prints the menu
 	"!who",				//prints list of connected users
 	"!quit",			//disconnects from the server
 	"!connect",         //starts protocol (ask to connect to another user)
 	"!disconnect",      //disconnect from the connected user
-	"!show_map",        //not used, could be used to show history of conversation instead
-	"!hit"				//could be used to exchange msgs between users
 };
-
-//DEchar	game_grid[9];	//deprecated
-//DEint	    empty_cells;	//deprecated
 
 char 	shell;       	// '>' = command shell, '#' = conversation shell
 int		show_shell;		//0 = don't print shell character, 1 = print
@@ -79,42 +69,22 @@ fd_set	master,			//master file descriptor list
         tmp_fd;         //temporary file descriptor list (for select)
 int	    max_fd;					
 
-//timer
-//DEstruct timeval timer;
-
 //=================================
 
 //===== UTILITY FUNCTIONS =========
 
 //------ valid_port ------
 int valid_port(int port) {
-	if(port<1024 || port>=65536)
+	if(port<1024 || port>9999)
 		return 0;
 	return 1;
 }
-
-//DE------ reset ------ initializes parameters
-// void reset() {
-	// int i;
-	// for(i=0; i<9; i++)
-        // game_grid[i] = '-';
-	// shell = '#';
-	// empty_cells = 9;
-	// if(my_mark=='X') 
-		// my_turn=1;
-	// else 
-		// my_turn=0;
-	// //aggiorno il timer
-	// timer.tv_sec = 60;
-	// timer.tv_usec = 0;
-	// return;
-// }
 
 //------ resolve_command ----- returns index in "commands" array associated to inserted command
 int resolve_command(char *cmd) {
 	int i;
 	for(i=0; i<N_CMD; i++) {
-        if(strcmp(cmd, commands[i])==0) // 0 se uguali
+        if(strcmp(cmd, commands[i])==0) // 0 if equal
 			return i;
 	}
 	return -1;
@@ -126,7 +96,6 @@ void add_padding(unsigned char* text) {
 	for(i=strlen(text); i<MAX_LENGTH-1; i++) {
 		text[i] = '$';
 	}
-	printf("Padded : %s",text);
 }
 
 //------ remove_padding ------ removes padding (in order to print out the username correctly)
@@ -149,10 +118,8 @@ unsigned char* first_msg(int msg_size, unsigned char* my_ID, unsigned char* othe
 	return msg;	
 }
 
+//------ send_first_msg ------ sends the first message
 void send_first_msg(unsigned char* source, unsigned char* dest) {
-	int secret_size;
-	int key_size;
-	int block_size;
 	int ret;	
 	int msg_size = MAX_LENGTH*2+NONCE_SIZE; 	//A,B,Na
 	unsigned char* secret 	= calloc(secret_size, sizeof(unsigned char));
@@ -160,7 +127,7 @@ void send_first_msg(unsigned char* source, unsigned char* dest) {
 	
 	enc_initialization(&secret_size, &key_size, &block_size);
 	
-	//TODO change, now it returns "fuckdis"
+	//TODO sistemare file
 	secret = retrieve_key(4,"secret_file"); 				
 	
 	my_nonce = calloc(NONCE_SIZE, sizeof(unsigned char));
@@ -176,6 +143,79 @@ void send_first_msg(unsigned char* source, unsigned char* dest) {
 	}
 }
 
+//------ send_third_msg ------ sends the third message containing (nonce, nonce) encrypted with the session key
+void send_third_msg(unsigned char* own_nonce, unsigned char* other_nonce){
+	int ret;	
+	int ct_size = 0;
+	int msg_size = NONCE_SIZE*2; 	
+	unsigned char* msg = calloc (NONCE_SIZE*2, sizeof(unsigned char));
+	unsigned char* ct = NULL;
+	
+	//prepare the message
+	memcpy(msg, own_nonce, NONCE_SIZE);
+	memcpy(msg+NONCE_SIZE, other_nonce, NONCE_SIZE);
+	
+	//encrypt and send message
+	ct=encrypt_msg(msg, block_size, session_key, SESSION_KEY_SIZE, &ct_size);
+	ret = sendto(client_sd, (void *)&ct_size, sizeof(int), 0, (struct sockaddr *)&client_addr, (socklen_t)sizeof(client_addr));
+	if(ret==-1) {
+		printf("Error: Error while sending third_msg\n");
+		exit(1);
+	}	
+	ret = sendto(client_sd, (void *)ct, ct_size, 0, (struct sockaddr *)&client_addr, (socklen_t)sizeof(client_addr));
+	if(ret==-1) {
+		printf("Error: Error while sending third_msg\n");
+		exit(1);
+	}	
+	printf("Plaintext : %s\n", msg);
+	printf("Sending ciphertext %s \n",ct);
+}
+
+//------ key_confirmation ------ receives the third message and checks then nonces freshness
+int key_confirmation() {
+	int ct_size=0;
+	int ret=0;
+	ret = recvfrom(client_sd, (void *)&ct_size, sizeof(int), 0, (struct sockaddr *)&client_addr, (socklen_t *)&addrlen);
+	if (ret==-1){
+		printf("Error while receiving ct_size");
+	}
+	unsigned char ct[ct_size];
+	ret = recvfrom(client_sd, (void *)ct, ct_size, 0, (struct sockaddr *)&client_addr, (socklen_t *)&addrlen);
+	
+	if(ret==-1) {
+		printf("Error while receiving ciphertext\n");
+	exit(1);
+	}
+	printf("Ciphertext received: %s\n", ct);
+	
+	//decrypt
+	unsigned char* pt = NULL;
+	pt=decrypt_msg(ct,block_size ,ct_size,session_key);
+	printf("Plaintext : %s\n", pt);
+	
+	//check freshness
+	unsigned char* my_new_nonce = calloc(NONCE_SIZE, sizeof(unsigned char));
+	unsigned char* other_nonce = calloc(NONCE_SIZE, sizeof(unsigned char));
+	
+	strncpy(other_nonce, pt, NONCE_SIZE);
+	printf("OtherNonce %s\n", other_nonce);	
+	
+	strncpy(my_new_nonce, pt+NONCE_SIZE, NONCE_SIZE);
+	printf("MyNonce %s\n", my_new_nonce);
+	
+	//check nonces freshness
+	if (strcmp(my_nonce, my_new_nonce) == 0 ) printf("My nonce is fresh!\n");
+	else {
+		printf("My nonce not fresh\n");
+		return 0;
+	}
+	if (strcmp(client_nonce, other_nonce) == 0 ) printf("Other nonce is fresh!\n");
+	else {
+		printf("Other nonce not fresh\n");
+		return 0;
+	}
+	return 1;
+}
 //=================================
 
 //===== FUNCTIONS =================
@@ -183,13 +223,14 @@ void send_first_msg(unsigned char* source, unsigned char* dest) {
 //------ cmd_who ----- connected users list is on the server, here we send the request
 void cmd_who() {
 	int ret;
-	char cmd = 'w';	//to be sent to the server
+	char cmd = 'w';		//to be sent to the server
 	
 	ret = send(server_sd, (void *)&cmd, sizeof(char), 0);
 	if(ret==-1) {
 		printf("cmd_who error: error while sending command\n");
 		exit(1);
 	}
+	
 	//receive is in get_from_server()
 	return;
 }
@@ -226,19 +267,19 @@ void cmd_connect() {
 		exit(1);
 	}
 	
-	//TODO invia il first message (A->S : A, B, Na)
+	//send first message (A->S : A, B, Na)
 	send_first_msg(my_username,client_username);
 	//server reply is in get_from_server()
 	return;
 }
-
+//TODO rivedere cmd disconnect
 //------ cmd_disconnect ------ end=1 game is over (still useful?), end=0 I disconnected, end=2 no need to notify disconnection to the server, already done by other client
 void cmd_disconnect(int end) {
 	int ret;
 	char cmd = 'd';	//to be sent to both server and client
 	
 	if(end==0) {		//I quit, need to inform client
-		ret = sendto(client_sd, (void *)&cmd, sizeof(char), 0, (struct sockaddr *)&client_addr, (socklen_t)sizeof(client_addr)); //informo l'avversario
+		ret = sendto(client_sd, (void *)&cmd, sizeof(char), 0, (struct sockaddr *)&client_addr, (socklen_t)sizeof(client_addr)); 
 		if(ret==-1) {
 			printf("cmd_disconnect error: error while notifying disconnection do client\n");
 			exit(1);
@@ -277,7 +318,7 @@ void cmd_quit() {
 		printf("cmd_quit error: error while sending\n");
 		exit(1);
 	}
-	if(shell=='#') //still connected
+	if(shell=='#') 	//still connected
 		cmd_disconnect(0);
 		
 	close(client_sd);
@@ -285,90 +326,11 @@ void cmd_quit() {
 	printf("Disconnection from server successfull!\n");
 	exit(0);
 }
-
-/* //TODO to be redefined, maybe send msgs
-//------ cmd_hit -----
- void cmd_hit(int cell) {
-	int		ret;
-	char	cmd = 'h';
-
-	if(shell=='>') {
-		printf("comando valido solo in partita!\n");
-		return;
-	}
-	if(!my_turn) {
-		printf("comando valido solo durante il proprio turno!\n");
-		return;
-	}
-	if(game_grid[cell] != '-') {	//cella non vuota
-		printf("la cella %d e' gia' occupata!\n", cell+1);
-		return;
-	}
-	
-	//da qui in poi significa che e' tutto ok
-	game_grid[cell] = my_mark;	//segno sul campo di gioco
-	empty_cells --;
-	my_turn = 0;				//il turno passa all'avversario
-	
-	//informo l'avversario che gli mando la coordinata
-	ret = sendto(client_sd, (void *)&cmd, sizeof(char), 0, (struct sockaddr *)&client_addr, (socklen_t)sizeof(client_addr));
-	if(ret==-1) {
-		printf("cmd_hit error: errore nell'invio all'avversario che ho fatto hit\n");
-		exit(1);
-	}
-	//mando coordinate all'avversario
-	cell = htonl(cell); //converto in formato di rete
-	ret = sendto(client_sd, (void *)&cell, sizeof(int), 0, (struct sockaddr *)&client_addr, (socklen_t)sizeof(client_addr));
-	if(ret==-1) {
-		printf("cmd_hit error: errore nell'invio delle coordinate all'avversario\n");
-		exit(1);
-	}
-	
-	//aggiorno //timer
-	//timer.tv_sec = 60;
-	//timer.tv_usec = 0;
-	
-	//controllo se la partita e' finita
-	if(check_win()==my_mark) { //ho vinto
-		printf("HAI VINTO!!\n");
-		cmd_disconnect(1);	//1 per indicare che non ho abbandonato la partita
-	}
-	if(check_win()!=my_mark && check_win()!=client_mark && empty_cells==0) { //pareggio
-		printf("PAREGGIO!!\n");
-		cmd_disconnect(1);  //1 per indicare che non ho abbandonato la partita
-	}
-	
-	printf("E' il turno di %s\n", client_username);
-	return;
-}
-
-//TODO to be redefined, maybe receive msgs
-//------ cmd_hit_received ----
-void cmd_hit_received(int cell) {
-	game_grid[cell] = client_mark;
-	empty_cells--;
-	my_turn = 1;
-	printf("%s ha marcato la cella numero %d\n", client_username, cell+1);
-	cmd_show_map(); //stampo il campo di gioco
-	printf("E' il tuo turno:\n");
-	
-	//controllo se la partita e' finita
-	if(check_win()==client_mark) { //ho perso
-		printf("HAI PERSO!!\n");
-		cmd_disconnect(1);	//1 per indicare che non ho abbandonato la partita
-	}
-	if(check_win()!=my_mark && check_win()!=client_mark && empty_cells==0) { //pareggio
-		printf("PAREGGIO!!\n");
-		cmd_disconnect(1);  //1 per indicare che non ho abbandonato la partita
-	}
-	return;
-} */
  
 //------ get_input ----- discriminates the command inserted by the user (keyboard)
 void get_input() {
 	char cmd[MAX_DIM_CMD];
-	int cell;
-	
+
 	scanf("%s", cmd);
 	fflush(stdin);		//to empty buffer from eventual remaining characters
 	switch(resolve_command(cmd)) {
@@ -403,20 +365,6 @@ void get_input() {
                         printf("you're not connected to anyone!\n");
                     break;
 		}
-		case 5:	{ //show_map
-										//nothing to be done yet
-                    break;
-		}
-		/* case 6:	{ //hit num_cella
-                    scanf("%d", &cell);
-                    if(cell<1 || cell>9) {
-                        printf("numero cella non valido! must be in [1, 9]\n");
-                        return;
-                    }
-                    //controllo fatto in cmd_hit
-                    //cmd_hit(cell-1);
-                    break;
-		} */
 		default: printf("non valid command! digit \"!help\" to check the commands list.\n");
 	}
 	return;
@@ -425,7 +373,6 @@ void get_input() {
 //------ connect_to_server -----	connect to the specified server
 void connect_to_server(char *addr, int port) {
 	int ret;
-
 	memset(&server_addr, 0, sizeof(server_addr));
 	
 	//check address
@@ -436,7 +383,7 @@ void connect_to_server(char *addr, int port) {
 	}
 	//check port
 	if(!valid_port(port)) {
-		printf("connect_to_server error: port not valid! (must be in [1025, 65535])\n");
+		printf("connect_to_server error: port not valid! (must be in [1025, 9999])\n");
 		exit(1);
 	}	
 	server_addr.sin_port = htons(port);
@@ -465,7 +412,6 @@ void print_client_list(int tot) {
 	
 	for(i=0; i<tot; i++) {
 		memset(client_name, 0, MAX_LENGTH);	//reset client_name
-		
 		
 		//receive client name
 		ret = recv(server_sd, (void *)client_name, MAX_LENGTH, 0);
@@ -499,22 +445,21 @@ void log_in_server() {
 	int 	length,
         ret;
 	char	cmd;
-	char	UDP[7];
+	char	UDP[5];
 	unsigned short port_tmp;
 	
-	memset(UDP, 0, 7);
+	memset(UDP, 0, 5);
 		
 	printf("\nInsert username (max %d characters): ", MAX_LENGTH-1);
 	scanf("%s", my_username);
 	add_padding(my_username);
 	
-	//TODO: limit port range to 4
 	do {
 		printf("Insert listening UDP port: ");
 		scanf("%s", UDP);
 		my_UDP_port = atoi(UDP);
 		if(!valid_port(my_UDP_port))
-			printf("port not valid! (must be in [1025, 65535])\n");
+			printf("port not valid! (must be in [1025, 9999])\n");
 	}while(!valid_port(my_UDP_port));
 	
 	//send (to server): username
@@ -539,13 +484,10 @@ void log_in_server() {
 		printf("log_in_server error: error in reception\n");
 		exit(1);
 	}
-	if(cmd=='e') {	//username already existent
+	if(cmd=='e') {	//username already exists
 		printf("chosen username already existent!\n");
-		exit(2);	//exit instead of repeating login procedure TODO: add while loop?
+		exit(2);	//exit instead of repeating login procedure
 	}
-	/*
-	if(cmd=='@') //connection ok!
-	*/
 	
 	//print list of connected users right after logging in
 	cmd_who();
@@ -558,29 +500,29 @@ void start_conversation() {
 	int ret;
 	int msglen;
 
-	printf("%s ha accettato la partita\n", client_username);
-	printf("Partita avviata con %s\n", client_username);
-
-	printf("E' il tuo turno:\n");
+	printf("%s accepted your request\n", client_username);
+	//receive server reply (S->A : (Kab, B, Na, Nb)Ka)
 	ret = recv(server_sd, (void *)&msglen, sizeof(int), 0);
 	if(ret==-1) {
-		printf("start_game error: errore nel ricevere la porta su cui e' in ascolto l'avversario!\n");
+		printf("start_game error: error receiving server response (msglen)\n");
 		exit(1);
 	}	
 	unsigned char* ct = calloc(msglen, sizeof(unsigned char*));
 	ret = recv(server_sd, (void *)ct, msglen, 0);
 	if(ret==-1) {
-		printf("start_game error: errore nel ricevere la porta su cui e' in ascolto l'avversario!\n");
+		printf("start_game error: error receiving server response (ct)\n");
 		exit(1);
 	}
-	unsigned char* secret 	= calloc(32, sizeof(unsigned char));
+	//TODO risolvere dimensioni chiavi
+	unsigned char* secret = calloc(32, sizeof(unsigned char));
+	//TODO file per client
 	secret = retrieve_key(32, "secret_file");
 	unsigned char* pt = NULL;
 	pt=decrypt_msg(ct,block_size ,msglen,secret);
 	printf("ct: %s\n", ct);
 	printf("pt: %s\n", pt);
  	//retrieve session_key, port, ip, Na, Nb
-	unsigned char* session_key 	= calloc(SESSION_KEY_SIZE, sizeof(unsigned char));
+	session_key = calloc(SESSION_KEY_SIZE, sizeof(unsigned char));
 	unsigned char* address = calloc(8, sizeof(unsigned char));
 	unsigned char* port = calloc(4, sizeof(unsigned char));
 	unsigned char* my_new_nonce = calloc(NONCE_SIZE, sizeof(unsigned char));
@@ -605,7 +547,7 @@ void start_conversation() {
 	if (strcmp(my_nonce,my_new_nonce) == 0 ) printf("Nonce is fresh!\n");
 	else printf("Nonce not fresh\n"); 
 	//TODO disconnect
-	//inizializzo parametri avversario
+	
 	memset(&client_addr, 0, sizeof(client_addr));
 	client_addr.sin_family = AF_INET;
 	client_addr.sin_port = htons(atoi(port));
@@ -613,24 +555,24 @@ void start_conversation() {
 
 	client_UDP_port = atoi(port);
 	printf("my_port: %d\nclient_port: %d\n", my_UDP_port, client_UDP_port);
-	//test UDP connection
+	
+	//send command for third message
 	char cmd = 't';
-	ret = sendto(client_sd, (void *)&cmd, sizeof(char), 0, (struct sockaddr *)&client_addr, (socklen_t)sizeof(client_addr));
-	if(ret==-1) {
-		printf("cmd_hit error: errore nell'invio all'avversario che ho fatto hit\n");
-		exit(1);
-	}
-	//mando test
-	unsigned char* test = "TEST"; //converto in formato di rete
-	ret = sendto(client_sd, (void *)test, 4, 0, (struct sockaddr *)&client_addr, (socklen_t)sizeof(client_addr));
-	if(ret==-1) {
-		printf("cmd_hit error: errore nell'invio delle coordinate all'avversario\n");
-		exit(1);
-	}
+		ret = sendto(client_sd, (void *)&cmd, sizeof(char), 0, (struct sockaddr *)&client_addr, (socklen_t)sizeof(client_addr));
+		if(ret==-1) {
+			printf("Error while sending t command\n");
+			exit(1);
+		}
+	//send A->B : (Na, Nb)Kab
+	send_third_msg(my_new_nonce, client_nonce);
 	
-	printf("after test send\n");
-	
-	//TODO inviare messaggio crittato con Kab a B, con nonce
+	//receive other's reply
+	if(key_confirmation()) {
+		printf("Protocol succesfull\n");
+	}
+	else{
+		printf("Protocol aborted\n");
+	}
 	
 	return;
 }
@@ -649,7 +591,6 @@ void manage_request() {
 	}
 	client_username[MAX_LENGTH-1] = '\0';
 	if(shell=='#') { 				//this client is busy, notify server
-		//notify server this client already busy
 		cmd = 'b';
 		ret = send(server_sd, (void *)&cmd, sizeof(cmd), 0);
 		if(ret==-1) {				//error sending notification to server
@@ -673,7 +614,7 @@ void manage_request() {
 			printf("manage_request error: error while sending request accepted to server!\n");
 			exit(1);
 		}
-		//TODO send messaggio in cui accetto con nonce (B->S : A, B, Nb)
+		//send first message (B->S : A, B, Nb)
 		send_first_msg(client_username, my_username);
 	}
 	else {							//client refused the request
@@ -694,22 +635,24 @@ void manage_request() {
 	}	
 	
 	unsigned char* ct = calloc(msglen, sizeof(unsigned char*));
-	//TODO receive msg2, scomporre, controllare nonce, prendere parametri dell'altro
+	//receive msg2
 	ret = recv(server_sd, (void *)ct, msglen, 0);
 	if(ret==-1) {					//error while receiving the other client's port
 		printf("error:error while receiving the other client's port\n");
 		exit(1);
 	}
 	unsigned char* secret 	= calloc(32, sizeof(unsigned char));
+	//TODO file diversi
 	secret = retrieve_key(32, "secret_file");
 	unsigned char* pt = NULL;
 	pt=decrypt_msg(ct,block_size ,msglen,secret);
+	
 	//debug prints
 	printf("cipher text: %s\n", ct);
 	printf("plain text: %s\n", pt);
 	
 	//retrieve session_key, port, ip, Na, Nb from plaintext
-	unsigned char* session_key 	= calloc(SESSION_KEY_SIZE, sizeof(unsigned char));
+	session_key 	= calloc(SESSION_KEY_SIZE, sizeof(unsigned char));
 	unsigned char* address = calloc(8, sizeof(unsigned char));
 	unsigned char* port = calloc(4, sizeof(unsigned char));
 	unsigned char* my_new_nonce = calloc(NONCE_SIZE, sizeof(unsigned char));
@@ -754,7 +697,7 @@ void get_from_server() {
 	}
 	switch(cmd) {
 		case 'w': {					//who - returns list of online users
-					printf("Online users:\n");
+				printf("Online users:\n");
                 //receive number of connected clients
                 ret = recv(server_sd, (void *)&tot_users, sizeof(int), 0);
                 if(ret==-1) {		//error
@@ -777,12 +720,6 @@ void get_from_server() {
                   						break;
                   }
                   case 'a': {		//client accepted request
-				  
-									//TODO ricevi messaggio crittato
-									//TODO decritta/scomponi messaggio, retrieve Kab
-									//TODO controlla NONCE
-									//TODO inizializza parametri B (IP e port)
-									
                               start_conversation();
                               break;
                   }
@@ -813,15 +750,10 @@ void get_from_server() {
 
 //------- get_from_client ------  client sent something
 void get_from_client() {
-	int 	ret,
-        addrlen,
-        cell;
+	int 	ret;
 	char	cmd;
 	
-	addrlen = sizeof(client_addr);
-	
-	//TODO lo prendo da qui IP/porta di A? o lo recupero prima?
-	
+	//receive from client
 	ret = recvfrom(client_sd, (void *)&cmd, sizeof(cmd), 0, (struct sockaddr *)&client_addr, (socklen_t *)&addrlen);
 	if(ret==-1) {					// error while receiving command from client
 		printf("get_from_client error: error while receiving command from client!\n");
@@ -834,33 +766,20 @@ void get_from_client() {
 	
 	switch(cmd) {
 		case 'd' :  {				//disconnect
-                  printf("%s disconnected!\n", client_username);
-                  cmd_disconnect(2);
-                  break;
+			printf("%s disconnected!\n", client_username);
+			cmd_disconnect(2);
+			break;
 		}
-		/* case 'h' :  {	//hit TODO: redefine for final exchange
-                 	ret = recvfrom(client_sd, (void *)&cell, sizeof(int), 0, (struct sockaddr *)&client_addr, (socklen_t *)&addrlen);
-                  if(ret==-1) {
-                  	printf("get_from_client error: errore in ricezione coordinate dal client!\n");
-                    exit(1);
-                  }
-                  cell = ntohl(cell);	//cell e' gia' decrementata di 1!
-                  //cmd_hit_received(cell);
-                  break;
-		} */
-		 case 't' : {				//test
-					printf("'t' received!\n");
-					unsigned char test[4];
-					ret = recvfrom(client_sd, (void *)test, 4, 0, (struct sockaddr *)&client_addr, (socklen_t *)&addrlen);
-                  if(ret==-1) {
-                  	printf("get_from_client error: errore in ricezione coordinate dal client!\n");
-                    exit(1);
-					printf("received from client: %s\n", test);
-				  }
-				  break;
+		case 't' : {				//third message
+			if(key_confirmation())
+				//reply with Nb, Na
+				send_third_msg(my_nonce, client_nonce);
+			else
+				printf("no\n");
+			break;
 		} 
 		default	:	{
-                  break;
+			break;
 		}
 	}
 	return;
@@ -872,12 +791,9 @@ void get_from_client() {
 int main(int num, char* args[]) {   		//remember: 1st arg is ./client
 	//encryption context initialization
 	enc_initialization(&secret_size, &key_size, &block_size);
-	
 	int ret,
       i;
-//DE	struct timeval *time;
-
-	
+	  
 	if(num!=3) {					//check number of parameters
 		printf("Wrong number of parameter!\n");
 		return -1;
@@ -921,37 +837,28 @@ int main(int num, char* args[]) {   		//remember: 1st arg is ./client
 	FD_SET(client_sd, &master);
 	FD_SET(0, &master);  //std in
 	max_fd = (server_sd>client_sd)?server_sd:client_sd;
-	
-	//reset();
+
 	shell = '>';
-	//DEtimer.tv_sec = 60;
-	//DEtimer.tv_usec = 0;
 	show_shell = 1;
 	
 	while(1) {
 		tmp_fd = master;
-		
-		//DEtime = &timer;
-		
-		//DEif(shell=='>')
-		//DE	time = NULL;
-		
+
 		if(show_shell) {
 			printf("%c", shell);
 			fflush(stdout);
 		}
-			
-		//TODO: remove time from select
-		ret = select(max_fd+1, &tmp_fd, NULL, NULL, 0); 	//attivare timer
+		
+		ret = select(max_fd+1, &tmp_fd, NULL, NULL, 0); 
 		if(ret==-1) {
 			printf("Select error\n");
 			exit(1);
 		}
 
 		for(i=0; i<=max_fd; i++) {
-			if(FD_ISSET(i, &tmp_fd)) { 	//there is a ready descriptor
+			if(FD_ISSET(i, &tmp_fd)) { 			//there is a ready descriptor
 			
-				if(i==0) {								//ready descriptor is STDIN
+				if(i==0) {						//ready descriptor is STDIN
 					//read input (command)
 					get_input();
 				}
