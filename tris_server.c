@@ -350,6 +350,9 @@ void cmd_connect() {
 					}
 					//retrieve nonce B from msg1
 					strncpy(client2->nonce, msg1+MAX_LENGTH*2, NONCE_SIZE);
+					//TODO check nonce freshness
+					
+					regenerate(othersname);
 					
 					//debug
 					printf("otheruser: %s\n", othersname);
