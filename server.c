@@ -32,25 +32,24 @@ struct user {
 	int		        socket;
 	unsigned long	address;
 	unsigned char 	nonce[NONCE_SIZE];
-	int 	        status; 	//0=free, 1=busy
-	struct user   	*other;		//user user is connected to
-	struct user   	*next;      //next user in the list
+	int 	        status; 		//0=free, 1=busy
+	struct user   	*other;			//user user is connected to
+	struct user   	*next;      	//next user in the list
 };
 
-struct user   *users;         //list of the connected users
+struct user   *users;         		//list of the connected users
 int             tot_users = 0;
 
-struct user   *client;        //user that is communicating with the server
+struct user   *client;        		//user that is communicating with the server
 
-//TODO make local (?)
 //config
 struct sockaddr_in 	server_addr,    //only used in main
-                    user_addr;    //only used in main and add_user
+                    user_addr;		//only used in main and add_user
 int	listener;                       //listening socket descriptor (only in main)
 
 //set for select
-fd_set 	master,     //master file descriptor list
-        tmp_fd;     //temporary file descriptor list for select
+fd_set 	master,     				//master file descriptor list
+        tmp_fd;     				//temporary file descriptor list for select
 int		max_fd;
 
 //=================================
@@ -59,13 +58,9 @@ int		max_fd;
 
 //----- valid_port ------
 int valid_port(int port) {
-	if(port<1024 || port>=65536)
+	if(port<1024 || port>=9999)
 		return 0;
 	return 1;
-}
-
-void regenerate(unsigned char* username){
-	    //username[MAX_LENGTH] = '\0';
 }
 
 //----- add_to_list ------    adds new user (elem) to the users list
@@ -80,11 +75,10 @@ void add_to_list(struct user *elem) {
 //----- remove_from_list ------ removes specified user (elem) from the users list
 void remove_from_list(struct user *elem) {
 	struct user *tmp = users;
-	
-	if(!tmp) {      //empty list (tot_users==0)
+	if(!tmp) {      				//empty list (tot_users==0)
 		return;
 	}
-	if(tmp==elem) { //elem is first item
+	if(tmp==elem) { 				//elem is first item
 		users = users->next;
 		free(tmp);
 		tot_users--;
@@ -92,7 +86,7 @@ void remove_from_list(struct user *elem) {
 	}
 	while(tmp->next!=elem && tmp->next!=NULL)
 		tmp = tmp->next;
-	if(tmp->next==NULL) //elem not found
+	if(tmp->next==NULL) 			//elem not found
 		return;
 	tot_users--;
 	tmp->next = tmp->next->next;
@@ -114,7 +108,7 @@ struct user* find_user_by_sd(int sd) {
 struct user* find_user_by_username(char *name) {
 	struct user *tmp = users;
 	while(tmp!=NULL) {
-		if(strcmp(tmp->username, name)==0)	//equals
+		if(strcmp(tmp->username, name)==0)	
 			return tmp;
 		tmp = tmp->next;
 	}
@@ -155,7 +149,7 @@ void cmd_who() {
 		printf("cmd_who error: error while sending tot_users\n");
 		exit(1);
 	}
-	while(tmp) {	//until there are users (tot_users times)
+	while(tmp) {						//until there are users (tot_users times)
 		
 		//send user name
 		printf("Client name: %s\n",tmp->username);
@@ -172,7 +166,6 @@ void cmd_who() {
 			printf("cmd_who error: error while sending user status\n");
 			exit(1);
 		}
-		
 		tmp = tmp->next;
 	}
 }
