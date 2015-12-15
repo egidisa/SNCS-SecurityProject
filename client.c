@@ -202,18 +202,18 @@ int key_confirmation() {
 	
 	strncpy(my_new_nonce, pt+NONCE_SIZE, NONCE_SIZE);
 	printf("MyNonce %s\n", my_new_nonce);
-	
-	//check nonces freshness
-	if (strcmp(my_nonce, my_new_nonce) == 0 ) printf("My nonce is fresh!\n");
-	else {
-		printf("My nonce not fresh\n");
+	//Crypto memcmp to avoid timing attack
+	int memcmp_res = CRYPTO_memcmp(my_nonce, my_new_nonce, NONCE_SIZE);
+	if(memcmp_res!=0){
+		printf("Nonce not fresh\n");
 		return 0;
 	}
-	if (strcmp(client_nonce, other_nonce) == 0 ) printf("Other nonce is fresh!\n");
-	else {
-		printf("Other nonce not fresh\n");
+	memcmp_res = CRYPTO_memcmp(client_nonce, other_nonce, NONCE_SIZE);
+	if(memcmp_res!=0){
+		printf("Other's nonce not fresh\n");
 		return 0;
 	}
+
 	return 1;
 }
 //=================================
@@ -543,8 +543,8 @@ void start_conversation() {
 	strncpy(client_nonce, pt+SESSION_KEY_SIZE+5+8+NONCE_SIZE, NONCE_SIZE);
 	printf("OtherNonce %s\n", client_nonce);
 	
-	//check my_new_nonce freshness
-	if (strcmp(my_nonce,my_new_nonce) == 0 ) printf("Nonce is fresh!\n");
+	//check my_new_nonce freshness with secure memcmp
+	if (CRYPTO_memcmp(my_nonce, my_new_nonce, NONCE_SIZE)== 0 ) printf("Nonce is fresh!\n");
 	else printf("Nonce not fresh\n"); 
 	//TODO disconnect
 	
@@ -673,8 +673,9 @@ void manage_request() {
 	strncpy(client_nonce, pt+SESSION_KEY_SIZE+5+8+NONCE_SIZE, NONCE_SIZE);
 	printf("OtherNonce %s\n", client_nonce);	
 	
-	//check my_new_nonce freshness
-	if (strcmp(my_nonce,my_new_nonce) == 0 ) printf("Nonce is fresh!\n");
+
+	//check my_new_nonce freshness with secure memcmp
+	if (CRYPTO_memcmp(my_nonce, my_new_nonce, NONCE_SIZE)== 0 ) printf("Nonce is fresh!\n");
 	else printf("Nonce not fresh\n"); 
 	//TODO disconnect
 	
@@ -775,7 +776,7 @@ void get_from_client() {
 				//reply with Nb, Na
 				send_third_msg(my_nonce, client_nonce);
 			else
-				printf("no\n");
+				printf("Key not confirmed\n");
 			break;
 		} 
 		default	:	{
