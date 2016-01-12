@@ -27,9 +27,10 @@
 //===== VARIABLES =================
 //Encryption variables
 	int secret_size;
-	int key_size;
+	int session_key_size;
 	int block_size;
 	unsigned char* session_key;
+	unsigned char* secret_key;
 
 //socket descriptors
 int server_sd,
@@ -99,14 +100,17 @@ void add_padding(unsigned char* text) {
 }
 
 //------ remove_padding ------ removes padding (in order to print out the username correctly)
-void remove_padding(unsigned char* text) {
+unsigned char* remove_padding(unsigned char* text) {
 	int i;
+	unsigned char* tmp = calloc(MAX_LENGTH, sizeof(unsigned char));
+	strcpy(tmp, text);
 	for(i=0; i<MAX_LENGTH-1; i++) {
-		if(text[i]=='$') {
-			text[i] = '\0';
+		if(tmp[i]=='$') {
+			tmp[i] = '\0';
 			break;
 		}
 	}
+	return tmp;
 }
 
 //------ first_msg ------ prepares and returns message with the syntax: (userID, userID, nonce)
@@ -122,13 +126,9 @@ unsigned char* first_msg(int msg_size, unsigned char* my_ID, unsigned char* othe
 void send_first_msg(unsigned char* source, unsigned char* dest) {
 	int ret;	
 	int msg_size = MAX_LENGTH*2+NONCE_SIZE; 	//A,B,Na
-	unsigned char* secret 	= calloc(secret_size, sizeof(unsigned char));
-	unsigned char* msg 			= calloc(msg_size, sizeof(unsigned char));
+	unsigned char* msg 			= calloc(msg_size, sizeof(unsigned char));				
 	
-	enc_initialization(&secret_size, &key_size, &block_size);
-	
-	//TODO sistemare file
-	secret = retrieve_key(4,"secret_file"); 				
+	printf("\nSending first message...\n");
 	
 	my_nonce = calloc(NONCE_SIZE, sizeof(unsigned char));
     my_nonce = generate_nonce();
@@ -151,12 +151,14 @@ void send_third_msg(unsigned char* own_nonce, unsigned char* other_nonce){
 	unsigned char* msg = calloc (NONCE_SIZE*2, sizeof(unsigned char));
 	unsigned char* ct = NULL;
 	
+	printf("\nSending third message...\n");
+	
 	//prepare the message
 	memcpy(msg, own_nonce, NONCE_SIZE);
 	memcpy(msg+NONCE_SIZE, other_nonce, NONCE_SIZE);
 	
 	//encrypt and send message
-	ct=encrypt_msg(msg, block_size, session_key, SESSION_KEY_SIZE, &ct_size);
+	ct=encrypt_msg(msg, block_size, session_key, session_key_size, &ct_size);
 	ret = sendto(client_sd, (void *)&ct_size, sizeof(int), 0, (struct sockaddr *)&client_addr, (socklen_t)sizeof(client_addr));
 	if(ret==-1) {
 		printf("Error: Error while sending third_msg\n");
@@ -186,21 +188,21 @@ int key_confirmation() {
 		printf("Error while receiving ciphertext\n");
 	exit(1);
 	}
-	printf("Ciphertext received: %s\n", ct);
+	printf("\nCiphertext received: %s\n", ct);
 	
 	//decrypt
 	unsigned char* pt = NULL;
-	pt=decrypt_msg(ct,block_size ,ct_size,session_key);
+	pt=decrypt_msg(ct,block_size, ct_size, session_key);
 	printf("Plaintext : %s\n", pt);
 	
 	//check freshness
 	unsigned char* my_new_nonce = calloc(NONCE_SIZE, sizeof(unsigned char));
 	unsigned char* other_nonce = calloc(NONCE_SIZE, sizeof(unsigned char));
 	
-	strncpy(other_nonce, pt, NONCE_SIZE);
+	memcpy(other_nonce, pt, NONCE_SIZE);
 	printf("OtherNonce %s\n", other_nonce);	
 	
-	strncpy(my_new_nonce, pt+NONCE_SIZE, NONCE_SIZE);
+	memcpy(my_new_nonce, pt+NONCE_SIZE, NONCE_SIZE);
 	printf("MyNonce %s\n", my_new_nonce);
 	//Crypto memcmp to avoid timing attack
 	int memcmp_res = CRYPTO_memcmp(my_nonce, my_new_nonce, NONCE_SIZE);
@@ -434,8 +436,7 @@ void print_client_list(int tot) {
 		else
 			strncpy(stat, "busy", sizeof(stat)-1);
 		stat[4] = '\0';
-		remove_padding(client_name);
-		printf("\t%d)  %s (%s)\n", i, client_name, stat);
+		printf("\t%d)  %s (%s)\n", i, remove_padding(client_name), stat);
 	}
 	return;
 }
@@ -447,11 +448,13 @@ void log_in_server() {
 	char	cmd;
 	char	UDP[5];
 	unsigned short port_tmp;
+	unsigned char filename[MAX_LENGTH];
 	
 	memset(UDP, 0, 5);
 		
 	printf("\nInsert username (max %d characters): ", MAX_LENGTH-1);
 	scanf("%s", my_username);
+	strcpy(filename, my_username);
 	add_padding(my_username);
 	
 	do {
@@ -471,7 +474,6 @@ void log_in_server() {
 	
 	//send (to server): UDP port
 	port_tmp = htons(my_UDP_port);
-	printf("htons port%d\n",port_tmp);
 	ret = send(server_sd, (void *)&port_tmp, sizeof(port_tmp), 0);
 	if(ret==-1 || ret<sizeof(port_tmp)) {
 		printf("log_in_server error: error in sending UDP port\n");
@@ -489,6 +491,10 @@ void log_in_server() {
 		exit(2);	//exit instead of repeating login procedure
 	}
 	
+	//HYP: users are already registered, filename is username
+	secret_key = calloc(secret_size, sizeof(unsigned char));
+	secret_key = retrieve_key(secret_size, filename);
+	
 	//print list of connected users right after logging in
 	cmd_who();
 	
@@ -500,7 +506,7 @@ void start_conversation() {
 	int ret;
 	int msglen;
 
-	printf("%s accepted your request\n", client_username);
+	printf("%s accepted your request\n", remove_padding(client_username));
 	//receive server reply (S->A : (Kab, B, Na, Nb)Ka)
 	ret = recv(server_sd, (void *)&msglen, sizeof(int), 0);
 	if(ret==-1) {
@@ -513,34 +519,35 @@ void start_conversation() {
 		printf("start_game error: error receiving server response (ct)\n");
 		exit(1);
 	}
-	//TODO risolvere dimensioni chiavi
-	unsigned char* secret = calloc(32, sizeof(unsigned char));
-	//TODO file per client
-	secret = retrieve_key(32, "secret_file");
+
+	
+	printf("\nSecond message received!\n");
+	
 	unsigned char* pt = NULL;
-	pt=decrypt_msg(ct,block_size ,msglen,secret);
+	pt=decrypt_msg(ct,block_size, msglen, secret_key);
 	printf("ct: %s\n", ct);
 	printf("pt: %s\n", pt);
  	//retrieve session_key, port, ip, Na, Nb
-	session_key = calloc(SESSION_KEY_SIZE, sizeof(unsigned char));
-	unsigned char* address = calloc(8, sizeof(unsigned char));
-	unsigned char* port = calloc(4, sizeof(unsigned char));
-	unsigned char* my_new_nonce = calloc(NONCE_SIZE, sizeof(unsigned char));
-	client_nonce = calloc(NONCE_SIZE, sizeof(unsigned char));
-	strncpy(session_key, pt, SESSION_KEY_SIZE);
+	session_key = calloc(session_key_size, sizeof(unsigned char*));
+	unsigned char* address = calloc(8, sizeof(unsigned char*));
+	unsigned char* port = calloc(4, sizeof(unsigned char*));
+	unsigned char* my_new_nonce = calloc(NONCE_SIZE, sizeof(unsigned char*));
+	client_nonce = calloc(NONCE_SIZE, sizeof(unsigned char*));
+	
+	memcpy(session_key, pt, session_key_size);
 	printf("session_key %s\n", session_key);
 
-	strncpy(port, pt+SESSION_KEY_SIZE+1, 4);
+	memcpy(port, pt+session_key_size, 4);
+	port[4] = '\0';
 	printf("port %s\n", port);
-	port[5] = '\0';
+	memcpy(address, pt+session_key_size+4, 8);
+	address[8]= '\0';
+	//printf("address %s\n", address);
 	
-	strncpy(address, pt+SESSION_KEY_SIZE+5, 8);
-	printf("address %s\n", address);
-	
-	strncpy(my_new_nonce, pt+SESSION_KEY_SIZE+5+8, NONCE_SIZE);
+	memcpy(my_new_nonce, pt+session_key_size+4+8, NONCE_SIZE);
 	printf("MyNonce %s\n", my_new_nonce);
 	
-	strncpy(client_nonce, pt+SESSION_KEY_SIZE+5+8+NONCE_SIZE, NONCE_SIZE);
+	memcpy(client_nonce, pt+session_key_size+4+8+NONCE_SIZE, NONCE_SIZE);
 	printf("OtherNonce %s\n", client_nonce);
 	
 	//check my_new_nonce freshness with secure memcmp
@@ -599,7 +606,7 @@ void manage_request() {
 		}
 		return;
 	}
-	printf("%s asked to connect with you!\n", client_username);
+	printf("%s asked to connect with you!\n", remove_padding(client_username));
 	do {
 		scanf("%c", &res);			//to avoid double print
 		printf("accept request? (y|n): ");
@@ -641,36 +648,38 @@ void manage_request() {
 		printf("error:error while receiving the other client's port\n");
 		exit(1);
 	}
-	unsigned char* secret 	= calloc(32, sizeof(unsigned char));
-	//TODO file diversi
-	secret = retrieve_key(32, "secret_file");
+
+	printf("\nSecond message received!\n");
+	
 	unsigned char* pt = NULL;
-	pt=decrypt_msg(ct,block_size ,msglen,secret);
+	pt=decrypt_msg(ct,block_size ,msglen,secret_key);
 	
 	//debug prints
 	printf("cipher text: %s\n", ct);
 	printf("plain text: %s\n", pt);
 	
 	//retrieve session_key, port, ip, Na, Nb from plaintext
-	session_key 	= calloc(SESSION_KEY_SIZE, sizeof(unsigned char));
-	unsigned char* address = calloc(8, sizeof(unsigned char));
-	unsigned char* port = calloc(4, sizeof(unsigned char));
-	unsigned char* my_new_nonce = calloc(NONCE_SIZE, sizeof(unsigned char));
-	client_nonce = calloc(NONCE_SIZE, sizeof(unsigned char));
-	strncpy(session_key, pt, SESSION_KEY_SIZE);
+	session_key = calloc(session_key_size, sizeof(unsigned char*));
+	unsigned char* address = calloc(8, sizeof(unsigned char*));
+	unsigned char* port = calloc(4, sizeof(unsigned char*));
+	unsigned char* my_new_nonce = calloc(NONCE_SIZE, sizeof(unsigned char*));
+	client_nonce = calloc(NONCE_SIZE, sizeof(unsigned char*));
+	
+	memcpy(session_key, pt, session_key_size);
 	printf("session_key %s\n", session_key);
 
-	strncpy(port, pt+SESSION_KEY_SIZE+1, 4);
+	memcpy(port, pt+session_key_size, 4);
 	printf("port %s\n", port);
 	printf("port (atoi) %d\n", atoi(port));
 	
-	strncpy(address, pt+SESSION_KEY_SIZE+5, 8);
-	printf("address %s\n", address);
+	memcpy(address, pt+session_key_size+4, 8);
+	address[8]= '\0';	
+	//printf("address %s\n", address);
 	
-	strncpy(my_new_nonce, pt+SESSION_KEY_SIZE+5+8, NONCE_SIZE);
+	memcpy(my_new_nonce, pt+session_key_size+4+8, NONCE_SIZE);
 	printf("MyNonce %s\n", my_new_nonce);
 	
-	strncpy(client_nonce, pt+SESSION_KEY_SIZE+5+8+NONCE_SIZE, NONCE_SIZE);
+	memcpy(client_nonce, pt+session_key_size+4+8+NONCE_SIZE, NONCE_SIZE);
 	printf("OtherNonce %s\n", client_nonce);	
 	
 
@@ -791,7 +800,7 @@ void get_from_client() {
 //------- main ------
 int main(int num, char* args[]) {   		//remember: 1st arg is ./client
 	//encryption context initialization
-	enc_initialization(&secret_size, &key_size, &block_size);
+	enc_initialization(&secret_size, &session_key_size, &block_size);
 	int ret,
       i;
 	  
@@ -822,8 +831,6 @@ int main(int num, char* args[]) {   		//remember: 1st arg is ./client
 	my_addr.sin_family = AF_INET;
 	my_addr.sin_port = htons(my_UDP_port);
 	my_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-	
-	printf("my port: %d\n", my_UDP_port);
 	
 	//Client bind
 	ret = bind(client_sd, (struct sockaddr*)&my_addr, sizeof(my_addr));

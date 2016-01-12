@@ -22,7 +22,7 @@
 //===== VARIABLES =================
 //Encryption variables
 	int secret_size;
-	int key_size;
+	int session_key_size;
 	int block_size;
 
 //one user
@@ -63,13 +63,25 @@ int valid_port(int port) {
 	return 1;
 }
 
+//------ remove_padding ------ removes padding (in order to print out the username correctly)
+unsigned char* remove_padding(unsigned char* text) {
+	int i;
+	unsigned char* tmp = calloc(MAX_LENGTH, sizeof(unsigned char));
+	strcpy(tmp, text);
+	for(i=0; i<MAX_LENGTH-1; i++) {
+		if(tmp[i]=='$') {
+			tmp[i] = '\0';
+			break;
+		}
+	}
+	return tmp;
+}
+
 //----- add_to_list ------    adds new user (elem) to the users list
 void add_to_list(struct user *elem) {
-	printf("elem port%d\n", elem->UDP_port);
 	tot_users++;
 	elem->next = users;
 	users = elem;
-	printf("elem port2%d\n", elem->UDP_port);
 }
 
 //----- remove_from_list ------ removes specified user (elem) from the users list
@@ -152,9 +164,7 @@ void cmd_who() {
 	while(tmp) {						//until there are users (tot_users times)
 		
 		//send user name
-		printf("Client name: %s\n",tmp->username);
 		ret = send(client->socket, (void *)tmp->username, MAX_LENGTH, 0);
-		printf("Client name: %s\n",tmp->username);
 		if(ret==-1 || ret<MAX_LENGTH) {
 			printf("cmd_who error: error while sending username\n");
 			exit(1);
@@ -192,41 +202,42 @@ unsigned char* second_msg(int msg_size, unsigned char* session_key, unsigned cha
 	int portIPsize = strlen(portIP);
 	unsigned char* msg = calloc (msg_size, sizeof(unsigned char*));
 	printf("second_msg: msg = %s\n", msg);
-	//memcpy(msg, session_key, SESSION_KEY_SIZE);
-	strcat(msg, session_key);
+	memcpy(msg, session_key, session_key_size);
+	//strcat(msg, session_key);
 	printf("second_msg: msg = %s\n", msg);
-	//memcpy(msg+SESSION_KEY_SIZE, portIP, portIPsize);
-	strcat(msg, portIP);
+	memcpy(msg+session_key_size, portIP, portIPsize);
+	//strcat(msg, portIP);
 	printf("second_msg: msg = %s\n", msg);
-	//memcpy(msg+SESSION_KEY_SIZE + portIPsize, nonce, NONCE_SIZE);
-	strcat(msg, nonce);
+	memcpy(msg+session_key_size + portIPsize, nonce, NONCE_SIZE);
+	//strcat(msg, nonce);
 	printf("second_msg: msg = %s\n", msg);
-	//memcpy(msg+SESSION_KEY_SIZE + portIPsize + NONCE_SIZE, nonceother, NONCE_SIZE);
-	strcat(msg, nonceother);
+	memcpy(msg+session_key_size + portIPsize + NONCE_SIZE, nonceother, NONCE_SIZE);
+	//strcat(msg, nonceother);
 	printf("second_msg: msg = %s\n", msg);
 	return msg;	
 }
 
-void send_second_msg(struct user* msgdest, struct user* other,unsigned char* session_key){
+void send_second_msg(struct user* msgdest, struct user* other, unsigned char* session_key){
 	unsigned char port[4], address[8];
 	unsigned char* msg2;
 	unsigned char* ct = NULL;
+	unsigned char filename[MAX_LENGTH];
 	int ct_size = 0;
 	int ret;
+	
+	printf("\nSending second message...\n");
+	
 	//port = htons(other->UDP_port);
 	sprintf(address, "%lu", other->address);
-	printf("IP: %s\n", address);
 	sprintf(port, "%d", other->UDP_port);
 	strcat(port, address);
-	printf("complete: %s\n", port);
 	//send enc(Kab, ip+port, noncedest)
-	unsigned char* secret 	= calloc(32, sizeof(unsigned char));
-	secret = retrieve_key(32, "secret_file");
-	//TODO change key for the two clients
-	msg2 = second_msg(SESSION_KEY_SIZE+strlen(port)+NONCE_SIZE*2, session_key, port, msgdest->nonce, other->nonce );
-	printf("msg2: %s\n", msg2);
-	ct=encrypt_msg(msg2,block_size ,secret,secret_size, &ct_size);
-	printf("ct: %s", ct);
+	strcpy(filename, remove_padding(msgdest->username));
+	unsigned char* secret_key = calloc(secret_size, sizeof(unsigned char));
+	secret_key = retrieve_key(secret_size, filename);
+	msg2 = second_msg(session_key_size+strlen(port)+NONCE_SIZE*2, session_key, port, msgdest->nonce, other->nonce );
+	ct=encrypt_msg(msg2,block_size ,secret_key,secret_size, &ct_size);
+	printf("ct: %s\n", ct);
 	ret = send(msgdest->socket, (void *)&ct_size, sizeof(int), 0);
 	if(ret==-1) {
 		printf("cmd_connect error: error while sending client2 accepted to client\n");
@@ -258,14 +269,7 @@ void cmd_connect() {
 	
 	//retrieve B and Na from msg1
 	strncpy(othersname, msg1+MAX_LENGTH, MAX_LENGTH);
-	printf("othersname %s\n", othersname);
 	strncpy(client->nonce, msg1+MAX_LENGTH*2, NONCE_SIZE);
-	
-    //debug
-	printf("othersname: %s\n", othersname);
-	
-	//SaRa - tmp
-	printf("msg1 %s\n",msg1);
 	
 	//inform client (A) that I'm replying to his connect request
 	cmd = 'c'; //connect
@@ -286,7 +290,6 @@ void cmd_connect() {
 	}
 	
 	client2 = find_user_by_username(othersname);
-	printf("Client2 udp_port %d",client2->UDP_port);
 	//forward connection request to client2 (B)
     //send command identifying request
     cmd = 'o';
@@ -349,7 +352,7 @@ void cmd_connect() {
 					printf("nonce: %s\n", client2->nonce);
 					
 					//Generate session key Kab
-					unsigned char* session_key=generate_session_key(SESSION_KEY_SIZE);
+					unsigned char* session_key=generate_session_key(session_key_size);
 					
 					//send to client2 second message
 					send_second_msg(client2, client, session_key);
@@ -369,7 +372,7 @@ void cmd_connect() {
                     client->status = 1;     //busy
                     client->other = client2;
                     client2->other = client;
-                    printf("%s connected to %s\n", client->username, client->other->username);
+                    printf("%s connected to %s\n", remove_padding(client->username), remove_padding(client->other->username));
                     break;
 		}
 		default:  {	//incomprehensible reply, should not happen!
@@ -473,12 +476,10 @@ int add_user(int sd) {
 		printf("add_user error: error while receiving UDP port\n");
 		exit(1);
 	}
-	printf("received port raw%d\n", UDP_port_tmp);
 	printf("received username: %s\n",new_user->username);
 	new_user->UDP_port = ntohs(UDP_port_tmp);
-	printf("received username: %s\n",new_user->username);
 	//while working in local I should check that users don't connect on the same UDP port
-	printf("received port ntohs%d\n",new_user->UDP_port);
+	printf("received port: %d\n",new_user->UDP_port);
 	if(exist(new_user->username)) {
 		cmd = 'e'; //exists
 		ret = send(sd, (void *)&cmd, sizeof(cmd), 0);
@@ -500,16 +501,13 @@ int add_user(int sd) {
         printf("add_user error: error in sending connection ok\n");
         exit(1);
     }
-	printf("new user port%d\n",new_user->UDP_port);
-	//regenerate(new_user->username);
-	printf("new user port2%d\n",new_user->UDP_port);
 	//add connected user to the list
 	add_to_list(new_user);
 	
 	printf("%s is connected\n", new_user->username);
 	printf("%s is free\n", new_user->username);
 	
-	printf("new user port%d\n",new_user->UDP_port);
+	printf("new user port: %d\n",new_user->UDP_port);
 	
 	return 1;
 }
@@ -520,7 +518,7 @@ int add_user(int sd) {
 int main(int num, char* args[]) {   //remember: 1st arg is ./server
 	//initialize encryption context
 
-	enc_initialization(&secret_size, &key_size, &block_size);
+	enc_initialization(&secret_size, &session_key_size, &block_size);
 	
 	int ret,
         i,

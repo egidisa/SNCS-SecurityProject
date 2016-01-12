@@ -13,8 +13,6 @@
 #define AES_256_CBC_BIT_MODE 256
 
 #define NONCE_SIZE 4
-#define SESSION_KEY_SIZE 32
-#define SECRET_KEY_SIZE 32 //TODO chiarire dimensioni
 
 char * retrieve_key(const int secret_size, unsigned char* filename) {	
 	unsigned char* secret = calloc (secret_size, sizeof(unsigned char));
