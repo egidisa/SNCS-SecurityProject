@@ -63,6 +63,16 @@ int valid_port(int port) {
 	return 1;
 }
 
+//----- hexadecimal print ------
+void print_hex(unsigned char *text){
+	int i;
+	int size=strlen(text);
+	for (i=0; i< size; i++){
+		printf("%02x", text[i]);
+	}
+	printf("\n");
+}
+
 //------ remove_padding ------ removes padding (in order to print out the username correctly)
 unsigned char* remove_padding(unsigned char* text) {
 	int i;
@@ -201,19 +211,20 @@ unsigned char* second_msg(int msg_size, unsigned char* session_key, unsigned cha
 	
 	int portIPsize = strlen(portIP);
 	unsigned char* msg = calloc (msg_size, sizeof(unsigned char*));
-	printf("second_msg: msg = %s\n", msg);
+	printf("second_msg: \n");
+	print_hex(msg);
 	memcpy(msg, session_key, session_key_size);
-	//strcat(msg, session_key);
-	printf("second_msg: msg = %s\n", msg);
+	printf("second_msg: \n");
+	print_hex(msg);
 	memcpy(msg+session_key_size, portIP, portIPsize);
-	//strcat(msg, portIP);
-	printf("second_msg: msg = %s\n", msg);
+	printf("second_msg: \n");
+	print_hex(msg);
 	memcpy(msg+session_key_size + portIPsize, nonce, NONCE_SIZE);
-	//strcat(msg, nonce);
-	printf("second_msg: msg = %s\n", msg);
+	printf("second_msg: \n");
+	print_hex(msg);
 	memcpy(msg+session_key_size + portIPsize + NONCE_SIZE, nonceother, NONCE_SIZE);
-	//strcat(msg, nonceother);
-	printf("second_msg: msg = %s\n", msg);
+	printf("second_msg: \n");
+	print_hex(msg);
 	return msg;	
 }
 
@@ -237,7 +248,8 @@ void send_second_msg(struct user* msgdest, struct user* other, unsigned char* se
 	secret_key = retrieve_key(secret_size, filename);
 	msg2 = second_msg(session_key_size+strlen(port)+NONCE_SIZE*2, session_key, port, msgdest->nonce, other->nonce );
 	ct=encrypt_msg(msg2,block_size ,secret_key,secret_size, &ct_size);
-	printf("ct: %s\n", ct);
+	printf("Ciphertext: \n");
+	print_hex(ct);
 	ret = send(msgdest->socket, (void *)&ct_size, sizeof(int), 0);
 	if(ret==-1) {
 		printf("cmd_connect error: error while sending client2 accepted to client\n");
@@ -349,7 +361,8 @@ void cmd_connect() {
 					
 					//debug
 					printf("otheruser: %s\n", othersname);
-					printf("nonce: %s\n", client2->nonce);
+					printf("nonce: \n");
+					print_hex(client2->nonce);
 					
 					//Generate session key Kab
 					unsigned char* session_key=generate_session_key(session_key_size);

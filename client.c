@@ -91,6 +91,16 @@ int resolve_command(char *cmd) {
 	return -1;
 }
 
+//----- hexadecimal print ------
+void print_hex(unsigned char *text){
+	int i;
+	int size=strlen(text);
+	for (i=0; i< size; i++){
+		printf("%02x", text[i]);
+	}
+	printf("\n");
+}
+
 //------ add_padding ------ adds padding '$' to inserted username if < MAX_LENGTH
 void add_padding(unsigned char* text) {
 	int i;
@@ -169,8 +179,10 @@ void send_third_msg(unsigned char* own_nonce, unsigned char* other_nonce){
 		printf("Error: Error while sending third_msg\n");
 		exit(1);
 	}	
-	printf("Plaintext : %s\n", msg);
-	printf("Sending ciphertext %s \n",ct);
+	printf("Plaintext : \n");
+	print_hex(msg);
+	printf("Sending ciphertext: \n");
+	print_hex(ct);
 }
 
 //------ key_confirmation ------ receives the third message and checks then nonces freshness
@@ -188,22 +200,24 @@ int key_confirmation() {
 		printf("Error while receiving ciphertext\n");
 	exit(1);
 	}
-	printf("\nCiphertext received: %s\n", ct);
-	
+	printf("\nCiphertext received: \n");
+	print_hex(ct);
 	//decrypt
 	unsigned char* pt = NULL;
 	pt=decrypt_msg(ct,block_size, ct_size, session_key);
-	printf("Plaintext : %s\n", pt);
+	printf("Plaintext : \n");
+	print_hex(pt);
 	
 	//check freshness
 	unsigned char* my_new_nonce = calloc(NONCE_SIZE, sizeof(unsigned char));
 	unsigned char* other_nonce = calloc(NONCE_SIZE, sizeof(unsigned char));
 	
 	memcpy(other_nonce, pt, NONCE_SIZE);
-	printf("OtherNonce %s\n", other_nonce);	
-	
+	printf("OtherNonce: \n");	
+	print_hex(other_nonce);
 	memcpy(my_new_nonce, pt+NONCE_SIZE, NONCE_SIZE);
-	printf("MyNonce %s\n", my_new_nonce);
+	printf("MyNonce: \n");
+	print_hex(my_new_nonce);
 	//Crypto memcmp to avoid timing attack
 	int memcmp_res = CRYPTO_memcmp(my_nonce, my_new_nonce, NONCE_SIZE);
 	if(memcmp_res!=0){
@@ -525,8 +539,10 @@ void start_conversation() {
 	
 	unsigned char* pt = NULL;
 	pt=decrypt_msg(ct,block_size, msglen, secret_key);
-	printf("ct: %s\n", ct);
-	printf("pt: %s\n", pt);
+	printf("Ciphertext: \n");
+	print_hex(ct);
+	printf("Plaintext: \n");
+	print_hex(pt);
  	//retrieve session_key, port, ip, Na, Nb
 	session_key = calloc(session_key_size, sizeof(unsigned char*));
 	unsigned char* address = calloc(8, sizeof(unsigned char*));
@@ -535,8 +551,8 @@ void start_conversation() {
 	client_nonce = calloc(NONCE_SIZE, sizeof(unsigned char*));
 	
 	memcpy(session_key, pt, session_key_size);
-	printf("session_key %s\n", session_key);
-
+	printf("Session_key: \n");
+	print_hex(session_key);
 	memcpy(port, pt+session_key_size, 4);
 	port[4] = '\0';
 	printf("port %s\n", port);
@@ -545,11 +561,11 @@ void start_conversation() {
 	//printf("address %s\n", address);
 	
 	memcpy(my_new_nonce, pt+session_key_size+4+8, NONCE_SIZE);
-	printf("MyNonce %s\n", my_new_nonce);
-	
+	printf("MyNonce: \n");
+	print_hex(my_new_nonce);
 	memcpy(client_nonce, pt+session_key_size+4+8+NONCE_SIZE, NONCE_SIZE);
-	printf("OtherNonce %s\n", client_nonce);
-	
+	printf("OtherNonce: \n");
+	print_hex(client_nonce);
 	//check my_new_nonce freshness with secure memcmp
 	if (CRYPTO_memcmp(my_nonce, my_new_nonce, NONCE_SIZE)== 0 ) printf("Nonce is fresh!\n");
 	else printf("Nonce not fresh\n"); 
@@ -655,8 +671,10 @@ void manage_request() {
 	pt=decrypt_msg(ct,block_size ,msglen,secret_key);
 	
 	//debug prints
-	printf("cipher text: %s\n", ct);
-	printf("plain text: %s\n", pt);
+	printf("cipher text: \n");
+	print_hex(ct);
+	printf("plain text: \n");
+	print_hex(pt);
 	
 	//retrieve session_key, port, ip, Na, Nb from plaintext
 	session_key = calloc(session_key_size, sizeof(unsigned char*));
@@ -666,8 +684,8 @@ void manage_request() {
 	client_nonce = calloc(NONCE_SIZE, sizeof(unsigned char*));
 	
 	memcpy(session_key, pt, session_key_size);
-	printf("session_key %s\n", session_key);
-
+	printf("Session_key: \n");
+	print_hex(session_key);
 	memcpy(port, pt+session_key_size, 4);
 	printf("port %s\n", port);
 	printf("port (atoi) %d\n", atoi(port));
@@ -677,10 +695,11 @@ void manage_request() {
 	//printf("address %s\n", address);
 	
 	memcpy(my_new_nonce, pt+session_key_size+4+8, NONCE_SIZE);
-	printf("MyNonce %s\n", my_new_nonce);
-	
+	printf("MyNonce: \n");
+	print_hex(my_new_nonce);
 	memcpy(client_nonce, pt+session_key_size+4+8+NONCE_SIZE, NONCE_SIZE);
-	printf("OtherNonce %s\n", client_nonce);	
+	printf("OtherNonce: \n");
+	print_hex(client_nonce);	
 	
 
 	//check my_new_nonce freshness with secure memcmp
